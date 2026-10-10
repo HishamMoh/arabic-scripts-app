@@ -57,6 +57,24 @@ st.session_state.custom_providers[current_provider]["key"] = user_api_key
 # عرض تفاصيل السيرفر النشط للتأكيد
 st.sidebar.info(f"🤖 النموذج النشط: {user_model}\n🔗 الرابط: {base_url}")
 
+# ⚡ 4. ميزة اختبار جودة اتصال النموذج والمفتاح المضافة حديثاً
+if st.sidebar.button("⚡ اختبار اتصال النموذج والمفتاح (Test)"):
+    if not user_api_key:
+        st.sidebar.error("من فضلك أدخل مفتاح الـ API أولاً لتتمكن من إرسال طلب الاختبار!")
+    else:
+        with st.sidebar.spinner("جاري فحص حالة السيرفر والمفتاح..."):
+            try:
+                test_client = openai.OpenAI(api_key=user_api_key, base_url=base_url)
+                # إرسال طلب فحص مصغر جداً وغير مكلف لتأكيد جهوزية الـ API
+                test_client.chat.completions.create(
+                    model=user_model,
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=5
+                )
+                st.sidebar.success("✅ الاتصال ناجح ومستقر! المفتاح والنموذج يعملان بأفضل كفاءة.")
+            except Exception as e:
+                st.sidebar.error(f"❌ فشل الاتصال! تحقق من الرابط والمفتاح.\nالخطأ العلمي: {str(e)}")
+
 # دالة لتحويل الصور المرفوعة إلى صيغة Base64 المفهومة لجميع الـ APIs
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
