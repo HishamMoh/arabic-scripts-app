@@ -2,39 +2,69 @@ import streamlit as st
 import openai
 import base64
 
-# إعداد واجهة المستخدم لتطبيق الشات العالمي المفتوح
-st.set_page_config(page_title="محلل النقوش العربية القديمة العالمي", page_icon="📜", layout="centered")
-st.title("📜 مساعد وباحث النقوش والخطوط العربية القديمة العالمي")
-st.write("مرحباً بك! تطبيق ويب مفتوح يدعم جميع المنصات والنماذج المجانية والمدفوعة لتحليل وقراءة نقوش خط المسند بمنهجية أكاديمية.")
+# إعداد واجهة المستخدم لتطبيق الشات العالمي المفتوح والمخصص
+st.set_page_config(page_title="محلل النقوش العربية القديمة المخصص", page_icon="📜", layout="centered")
+st.title("📜 مساعد وباحث النقوش والخطوط العربية القديمة المخصص")
+st.write("مرحباً بك! تطبيق ويب مفتوح بالكامل يتيح لك حفظ وإدارة قائمة مزودي الـ AI الخاصة بك بدقة لتحليل وقراءة نقوش خط المسند.")
 
-# القائمة الجانبية المرنة لاستيعاب أي منصة ذكاء اصطناعي في العالم
-st.sidebar.title("🔑 إعدادات منصة الـ AI")
+# 1. تهيئة قائمة المزودين الافتراضية داخل ذاكرة المتصفح إذا لم تكن موجودة
+if "custom_providers" not in st.session_state:
+    st.session_state.custom_providers = {
+        "منصة SiliconFlow (افتراضي)": {
+            "url": "https://siliconflow.com",
+            "model": "deepseek-ai/DeepSeek-V3",
+            "key": ""
+        },
+        "منصة OpenRouter (افتراضي)": {
+            "url": "https://openrouter.ai",
+            "model": "google/gemini-2.5-flash:free",
+            "key": ""
+        }
+    }
 
-# خيار مخصص لـ OpenRouter لسهولة الاستخدام المجاني، وخيار يدوي مفتوح لأي منصة أخرى
-provider_type = st.sidebar.selectbox("اختر طريقة الربط:", ["منصة OpenRouter (توفر نماذج مجانية)", "إدخال منصة أخرى يدوياً (Custom API)"])
+st.sidebar.title("🛠️ إدارة وحفظ المزودين")
 
-if provider_type == "منصة OpenRouter (توفر نماذج مجانية)":
-    base_url = "https://openrouter.ai"
-    default_model = "google/gemini-2.5-flash:free"  # نموذج مجاني وقوي جداً متوفر على المنصة
-else:
-    base_url = st.sidebar.text_input("أدخل رابط المنصة (Base URL):", value="https://openai.com")
-    default_model = st.sidebar.text_input("اسم النموذج (Model Name):", value="gpt-4o")
+# 2. نموذج لإضافة مزود جديد وحفظه في القائمة
+with st.sidebar.expander("➕ إضافة مزود جديد للقائمة"):
+    new_name = st.text_input("اسم المزود (مثال: My DeepSeek):")
+    new_url = st.text_input("رابط المنصة (Base URL):", value="https://openai.com")
+    new_model = st.text_input("اسم النموذج (Model Name):")
+    new_key = st.text_input("مفتاح الـ API الخاص به:", type="password")
+    add_btn = st.button("💾 حفظ المزود في القائمة")
+    
+    if add_btn and new_name and new_model:
+        st.session_state.custom_providers[new_name] = {
+            "url": new_url,
+            "model": new_model,
+            "key": new_key
+        }
+        st.sidebar.success(f"تمت إضافة '{new_name}' إلى قائمتك بنجاح!")
 
-if provider_type == "منصة OpenRouter (توفر نماذج مجانية)":
-    user_model = st.sidebar.text_input("اسم النموذج المستهدف:", value=default_model)
-else:
-    user_model = default_model
+# 3. قائمة اختيار المزود الحالي النشط من القائمة المخزنة
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔌 اختر المزود النشط حالياً:")
+current_provider = st.sidebar.selectbox("اختر من قائمتك المحفوظة:", list(st.session_state.custom_providers.keys()))
 
-user_api_key = st.sidebar.text_input("أدخل مفتاح الـ API الخاص بك:", type="password")
+# استخراج بيانات المزود الذي تم اختياره من القائمة لتشغيله
+provider_data = st.session_state.custom_providers[current_provider]
+base_url = provider_data["url"]
+user_model = provider_data["model"]
+
+# السماح للمستخدم برؤية وتحديث المفتاح الخاص بالمزود المختار مباشرة
+user_api_key = st.sidebar.text_input(f"مفتاح الـ API لـ ({current_provider}):", value=provider_data["key"], type="password")
+st.session_state.custom_providers[current_provider]["key"] = user_api_key
+
+# عرض تفاصيل السيرفر النشط للتأكيد
+st.sidebar.info(f"🤖 النموذج النشط: {user_model}\n🔗 الرابط: {base_url}")
 
 # دالة لتحويل الصور المرفوعة إلى صيغة Base64 المفهومة لجميع الـ APIs
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
 if not user_api_key:
-    st.info("من فضلك، أكمل إعدادات المنصة وأدخل مفتاح الـ API الخاص بك في القائمة الجانبية لتشغيل التطبيق.", icon="🔑")
+    st.info("من فضلك، اختر المزود النشط وأدخل مفتاح الـ API الخاص به في القائمة الجانبية لبدء المحادثة.", icon="🔑")
 else:
-    # تهيئة اتصال العميل الموحد المفتوح لأي سيرفر في العالم
+    # تهيئة اتصال العميل الموحد المفتوح المتوافق مع معيار OpenAI الشامل
     client = openai.OpenAI(api_key=user_api_key, base_url=base_url)
     
     # تعريف تعليمات النظام الصارمة (System Instructions) الخاصة بدراسة النقوش
@@ -60,7 +90,7 @@ else:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # خانة رفع صور النقوش والآثار (تم إصلاح المكون البرمجي ليعمل بشكل صحيح كصندوق رفع ملفات)
+    # خانة رفع صور النقوش والآثار
     uploaded_image = st.file_uploader("قم برفع صورة النقش التاريخي لتحليله (اختياري):", type=["png", "jpg", "jpeg"])
 
     # خانة إدخال النص والأسئلة الخاصة بالمستخدم
