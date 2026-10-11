@@ -3,45 +3,93 @@ import openai
 import base64
 import time
 from datetime import datetime
+import sqlite3
+import json
 
 st.set_page_config(page_title="منصة تحليل النقوش العربية القديمة المفتوحة", page_icon="📜", layout="centered")
 
+# إعداد قاعدة البيانات SQLite لحفظ السجل المستمر
+def init_db():
+    conn = sqlite3.connect("chats_archive.db")
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS chats
+                 (chat_id TEXT PRIMARY KEY, title TEXT, messages TEXT, created_at TEXT)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def load_all_chats():
+    conn = sqlite3.connect("chats_archive.db")
+    c = conn.cursor()
+    c.execute("SELECT chat_id, title, messages FROM chats")
+    rows = c.fetchall()
+    conn.close()
+    archive = {}
+    for row in rows:
+        chat_id, title, msgs_json = row
+        try:
+            archive[chat_id] = {
+                "title": title,
+                "messages": json.loads(msgs_json)
+            }
+        except:
+            pass
+    return archive
+
+def save_chat_to_db(chat_id, title, messages):
+    conn = sqlite3.connect("chats_archive.db")
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO chats (chat_id, title, messages, created_at) VALUES (?, ?, ?, ?)",
+              (chat_id, title, json.dumps(messages, ensure_ascii=False), datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit()
+    conn.close()
+
 if "custom_providers" not in st.session_state:
     st.session_state.custom_providers = {
-        "منصة SiliconFlow (افتراضي)": {
+        "منصة SiliconFlow": {
             "url": "https://api.siliconflow.com/v1",
-            "model": "deepseek-ai/DeepSeek-V3",
+            "models": ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"],
             "key": ""
         },
-        "منصة OpenRouter (افتراضي)": {
+        "منصة OpenRouter": {
             "url": "https://api.openrouter.ai/api/v1",
-            "model": "google/gemini-2.5-flash:free",
+            "models": ["google/gemini-2.5-flash:free", "deepseek/deepseek-chat"],
             "key": ""
         }
     }
 
 if "chat_history_archive" not in st.session_state:
-    st.session_state.chat_history_archive = {}
+    loaded_archive = load_all_chats()
+    if loaded_archive:
+        st.session_state.chat_history_archive = loaded_archive
+    else:
+        init_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        init_title = f"محادثة جديدة {datetime.now().strftime('%H:%M')}"
+        st.session_state.chat_history_archive = {
+            init_id: {"title": init_title, "messages": []}
+        }
+        save_chat_to_db(init_id, init_title, [])
 
 if "current_chat_id" not in st.session_state:
-    st.session_state.current_chat_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.current_chat_id = list(st.session_state.chat_history_archive.keys())[0]
 
 if st.session_state.current_chat_id not in st.session_state.chat_history_archive:
-    st.session_state.chat_history_archive[st.session_state.current_chat_id] = {
-        "title": f"محادثة جديدة {datetime.now().strftime('%H:%M')}",
-        "messages": []
-    }
+    st.session_state.current_chat_id = list(st.session_state.chat_history_archive.keys())[0]
 
 active_messages = st.session_state.chat_history_archive[st.session_state.current_chat_id]["messages"]
 
 st.sidebar.title("📜 أرشيف المحادثات السابقة")
 
 if st.sidebar.button("➕ بدء محادثة جديدة"):
-    st.session_state.current_chat_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.session_state.chat_history_archive[st.session_state.current_chat_id] = {
-        "title": f"محادثة جديدة {datetime.now().strftime('%H:%M')}",
+    new_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_title = f"محادثة جديدة {datetime.now().strftime('%H:%M')}"
+    st.session_state.current_chat_id = new_id
+    st.session_state.chat_history_archive[new_id] = {
+        "title": new_title,
         "messages": []
     }
+    save_chat_to_db(new_id, new_title, [])
     st.sidebar.success("تم الانتقال إلى محادثة جديدة فارغة!")
     st.rerun()
 
@@ -56,29 +104,33 @@ for chat_id, chat_data in list(st.session_state.chat_history_archive.items()):
         st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.title("🛠️ إدارة وحفظ المزودين")
+st.sidebar.title("🛠️ إدارة وحفظ المزودين والنفائس")
 
-with st.sidebar.expander("➕ إضافة مزود جديد للقائمة"):
-    new_name = st.text_input("اسم المزود (مثال: My DeepSeek):")
+with st.sidebar.expander("➕ إضافة مزود جديد ونماذجه"):
+    new_name = st.text_input("اسم المزود (مثال: My Provider):")
     new_url = st.text_input("رابط المنصة (Base URL):", value="https://api.openai.com/v1")
-    new_model = st.text_input("اسم النموذج (Model Name):")
+    new_models_str = st.text_area("أ اسماء النماذج مفصولة بفواصل (Model Names):", value="gpt-4o, gpt-3.5-turbo")
     new_key = st.text_input("مفتاح الـ API الخاص به:", type="password")
     add_btn = st.button("💾 حفظ المزود في القائمة")
     
-    if add_btn and new_name and new_model:
+    if add_btn and new_name and new_models_str:
+        models_list = [m.strip() for m in new_models_str.split(",") if m.strip()]
         st.session_state.custom_providers[new_name] = {
             "url": new_url,
-            "model": new_model,
+            "models": models_list,
             "key": new_key
         }
-        st.sidebar.success(f"تمت إضافة '{new_name}' إلى قائمتك بنجاح!")
+        st.sidebar.success(f"تمت إضافة '{new_name}' ونماذجه بنجاح!")
 
 st.sidebar.subheader("🔌 اختر المزود النشط حالياً:")
 current_provider = st.sidebar.selectbox("اختر من قائمتك المحفوظة:", list(st.session_state.custom_providers.keys()))
 
 provider_data = st.session_state.custom_providers[current_provider]
 base_url = provider_data["url"]
-user_model = provider_data["model"]
+available_models = provider_data["models"]
+
+st.sidebar.subheader("🎯 اختر النموذج النشط:")
+user_model = st.sidebar.selectbox("النماذج المتاحة للمزود:", available_models)
 
 user_api_key = st.sidebar.text_input(f"مفتاح الـ API لـ ({current_provider}):", value=provider_data["key"], type="password")
 st.session_state.custom_providers[current_provider]["key"] = user_api_key
@@ -109,7 +161,7 @@ st.title("📜 مساعد وباحث النقوش والخطوط العربية 
 st.write(f"📂 الجلسة الحالية: **{st.session_state.chat_history_archive[st.session_state.current_chat_id]['title']}**")
 
 if not user_api_key:
-    st.info("من فضلك، اختر المزود النشط وأدخل مفتاح الـ API الخاص به في القائمة الجانبية لبدء المحادثة.", icon="🔑")
+    st.info("من فضلك، أدخل مفتاح الـ API الخاص بالمزود في القائمة الجانبية لبدء المحادثة وتحليل النقوش.", icon="🔑")
 else:
     client = openai.OpenAI(api_key=user_api_key, base_url=base_url)
     
@@ -126,7 +178,7 @@ else:
  * البحث الأكاديمي الشامل لمحتوى النقش (Macro-Level Inscription Search):
  * ابحث عن محتوى النقش كاملاً في قواعد البيانات الأكاديمية العالمية ومدونات النقوش المتخصصة (وعلى رأسها مدونة داسي DASI، و أرشيف CSAI).
  * يجب أن يشمل بحثك كافة لغات النشر الأكاديمية (العربية، الإنجليزية، الفرنسية، الروسية، الإيطالية، الألمانية، واللغات الإثيوبية/الجعزية).
- * إذا كان النقش قد تمت دراسته سابقاً، اذكر رمزه العلمي الأكاديمي (مثل CIH, RES, Ja, Ir, Ry, Sh), مع تقديم ملخص علمي دقيق لما توصلت إليه تلك الدراسات، وإدراج روابط فعلية وحقيقية لتلك الدراسات أو لصفحة النقش في (DASI).
+ * إذا كان النقش قد تمت دراسته سابقاً، اذكر رمزه العلمي الأكاديمي (مثل CIH, RES, Ja, Ir, Ry, Sh), مع تقديم ملخص علمي دقيق لما توصلت إليه تلك الدراسات، وإدراج روابط فعلية والحقيقية لتلك الدراسات أو لصفحة النقش في (DASI).
  * التحليل المعجمي المورفولوجي والمقارنة المتقاطعة (Micro-Level Lexical & Morphological Analysis):
  * التحليل الصرفي (Morphology): جرد الكلمات من أدوات التعريف اللاحقة والضمائر المتصلة لإرجاعها إلى جذورها اللغوية الأصلية، مع تحديد الصيغة الصرفية (اسم فاعل، فعل ماضٍ مضعف، جمع تكسير، اسم علم مركّب.. إلخ).
  * ابحث عن كل مفردة من مفردات النقش في المصادر العالمية والقواميس المتخصصة (مثل قاموس بيستون للسبئية أو المعاجم المعتمدة).
@@ -151,8 +203,10 @@ else:
     uploaded_image = st.file_uploader("قم برفع صورة النقش التاريخي لتحليله (اختياري):", type=["png", "jpg", "jpeg"])
 
     if user_prompt := st.chat_input("اكتب استفسارك أو انسخ حروف النقش هنا..."):
+        current_chat = st.session_state.current_chat_id
         if len(active_messages) == 0:
-            st.session_state.chat_history_archive[st.session_state.current_chat_id]["title"] = user_prompt[:25] + "..."
+            new_title = user_prompt[:25] + "..."
+            st.session_state.chat_history_archive[current_chat]["title"] = new_title
 
         with st.chat_message("user"):
             st.markdown(user_prompt)
@@ -170,6 +224,7 @@ else:
             message_content = user_prompt
             
         active_messages.append({"role": "user", "content": user_prompt if not uploaded_image else f"[صورة مرفوعة] {user_prompt}"})
+        save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
 
         with st.chat_message("assistant"):
             progress_bar = st.progress(0)
@@ -209,12 +264,13 @@ else:
                 response_placeholder.markdown(output_text)
                 
                 active_messages.append({"role": "assistant", "content": output_text})
+                save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
                 
                 st.download_button(
-                    label="💾 تحميل التقرير الأكاديمي الحالي كملف نصي",
+                    label="💾 تحميل التقرير الأكاديمي كملف Markdown (.md)",
                     data=output_text,
-                    file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain"
+                    file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown"
                 )
                 
                 st.rerun()
