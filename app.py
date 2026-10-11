@@ -44,7 +44,7 @@ def init_db():
         if col_name not in existing_columns:
             try:
                 c.execute(f"ALTER TABLE providers ADD COLUMN {col_name} {col_type}")
-            except Exception as e:
+            except Exception:
                 pass
                 
     conn.commit()
@@ -132,8 +132,7 @@ def load_all_providers():
     try:
         c.execute("SELECT name, api_style, url, path, api_key, network_opt, models FROM providers")
         rows = c.fetchall()
-    except Exception as e:
-        # في حال حدوث أي خطأ بنيوي طارئ، يتم إعادة بناء الجدول بلطف
+    except Exception:
         c.execute("DROP TABLE IF EXISTS providers")
         c.execute('''CREATE TABLE providers
                      (name TEXT PRIMARY KEY, api_style TEXT, url TEXT, path TEXT, api_key TEXT, network_opt INTEGER, models TEXT)''')
@@ -154,10 +153,19 @@ def load_all_providers():
     providers = {}
     for row in rows:
         name, api_style, url, path, api_key, network_opt, models_json = row
-        try:
-            models_dict = json.loads(models_json)
-        except:
-            models_dict = {}
+        
+        # معالجة آمنة لضمان أن models دائماً قاموس (Dictionary) وليس نصاً
+        models_dict = {}
+        if isinstance(models_json, str):
+            try:
+                models_dict = json.loads(models_json)
+                if not isinstance(models_dict, dict):
+                    models_dict = {}
+            except:
+                models_dict = {}
+        elif isinstance(models_json, dict):
+            models_dict = models_json
+            
         providers[name] = {
             "api_style": api_style if api_style else "متوافق مع OpenAI API",
             "url": url if url else "https://api.openai.com/v1",
@@ -171,14 +179,30 @@ def load_all_providers():
 def save_provider_to_db(name, p_data):
     conn = sqlite3.connect("chats_archive.db", check_same_thread=False)
     c = conn.cursor()
+    
+    # ضمان أن models يتم تحويلها لنص JSON بشكل آمن
+    models_val = p_data.get("models", {})
+    if not isinstance(models_val, str):
+        models_str = json.dumps(models_val, ensure_ascii=False)
+    else:
+        models_str = models_val
+        
     c.execute("INSERT OR REPLACE INTO providers (name, api_style, url, path, api_key, network_opt, models) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              (name, p_data.get("api_style", "متوافق مع OpenAI API"), p_data["url"], p_data.get("path", "/chat/completions"), p_data["key"], 1 if p_data.get("network_opt", True) else 0, json.dumps(p_data["models"], ensure_ascii=False)))
+              (name, p_data.get("api_style", "متوافق مع OpenAI API"), p_data["url"], p_data.get("path", "/chat/completions"), p_data["key"], 1 if p_data.get("network_opt", True) else 0, models_str))
     conn.commit()
     conn.close()
 
 # ==================== تهيئة Session State ====================
 if "custom_providers" not in st.session_state:
     st.session_state.custom_providers = load_all_providers()
+
+# ضمان فحص كل المزودين في session_state للتأكد من أن models قاموس دائماً
+for p_n, p_val in st.session_state.custom_providers.items():
+    if not isinstance(p_val.get("models"), dict):
+        try:
+            p_val["models"] = json.loads(p_val["models"]) if isinstance(p_val["models"], str) else {}
+        except:
+            p_val["models"] = {}
 
 if "chat_history_archive" not in st.session_state:
     loaded_archive = load_all_chats()
@@ -243,6 +267,8 @@ st.sidebar.subheader("🔌 اختر المزود للتعديل أو الاست�
 current_provider_name = st.sidebar.selectbox("قائمة المزودين:", list(st.session_state.custom_providers.keys()))
 
 p_obj = st.session_state.custom_providers[current_provider_name]
+if not isinstance(p_obj.get("models"), dict):
+    p_obj["models"] = {}
 
 # واجهة تعديل بيانات المزود
 st.sidebar.markdown(f"### ⚙️ إعدادات المزود: `{current_provider_name}`")
@@ -306,7 +332,7 @@ if add_model_exp:
         new_m_tools = st.checkbox("استخدام الأدوات", value=True)
         new_m_reasoning = st.checkbox("الاستنتاج (Reasoning)", value=False)
         new_m_ctx = st.number_input("نافذة السياق (Context Window)", value=128000, step=1000)
-        new_m_max_tok = st.number_input("الحد الأقصى للمخرجات", value=4096, step=512)
+        new_m_max_tok = st.number_input("الحد الأقص للمخرجات", value=4096, step=512)
         
         save_m_btn = st.form_submit_button("حفظ النموذج")
         if save_m_btn:
@@ -505,7 +531,7 @@ else:
         
         if uploaded_image:
             base64_image = encode_image(uploaded_image)
-            message_content = [
+            model_content_list = [
                 {"type": "text", "text": user_prompt},
                 {
                     "type": "image_url",
@@ -513,7 +539,7 @@ else:
                 }
             ]
         else:
-            message_content = user_prompt
+            model_content_list = user_prompt
             
         active_messages.append({"role": "user", "content": user_prompt if not uploaded_image else f"[صورة مرفوعة] {user_prompt}"})
         save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
@@ -543,7 +569,7 @@ else:
                 for m in active_messages:
                     api_messages.append({"role": m["role"], "content": m["content"]})
                 if uploaded_image and api_messages[-1]["role"] == "user":
-                    api_messages[-1]["content"] = message_content
+                    api_messages[-1]["content"] = model_content_list
 
                 completion = client.chat.completions.create(
                     model=active_model_id,
@@ -572,7 +598,7 @@ else:
                     st.download_button(
                         label="📄 تحميل كملف Word (.docx)",
                         data=docx_data,
-                        file_name=f"تقرير_نقש_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+                        file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         key=f"dl_docx_{len(active_messages)}"
                     )
