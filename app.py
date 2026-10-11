@@ -6,7 +6,6 @@ from datetime import datetime
 import sqlite3
 import json
 import io
-import httpx
 from docx import Document
 
 st.set_page_config(page_title="منصة تحليل النقوش العربية القديمة المفتوحة", page_icon="📜", layout="centered")
@@ -70,7 +69,6 @@ def load_all_providers():
     conn.close()
     
     if not rows:
-        # Save default providers to DB
         for p_name, p_data in default_providers.items():
             c_inner = sqlite3.connect("chats_archive.db", check_same_thread=False)
             c_inner.execute("INSERT OR IGNORE INTO providers (name, url, models, api_key) VALUES (?, ?, ?, ?)",
@@ -119,12 +117,12 @@ if "chat_history_archive" not in st.session_state:
 
 if "current_chat_id" not in st.session_state:
     chat_keys = list(st.session_state.chat_history_archive.keys())
-    st.session_state.current_chat_id = chat_keys if chat_keys else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.current_chat_id = chat_keys[0] if chat_keys else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 if st.session_state.current_chat_id not in st.session_state.chat_history_archive:
     chat_keys = list(st.session_state.chat_history_archive.keys())
     if chat_keys:
-        st.session_state.current_chat_id = chat_keys
+        st.session_state.current_chat_id = chat_keys[0]
     else:
         init_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         st.session_state.chat_history_archive[init_id] = {"title": "محادثة جديدة", "messages": []}
@@ -192,33 +190,25 @@ user_model = st.sidebar.selectbox("النماذج المتاحة للمزود:",
 
 user_api_key = st.sidebar.text_input(f"مفتاح الـ API لـ ({current_provider}):", value=provider_data["key"], type="password")
 st.session_state.custom_providers[current_provider]["key"] = user_api_key
-# تحديث المفتاح في قاعدة البيانات أيضاً فور إدخاله
 save_provider_to_db(current_provider, base_url, available_models, user_api_key)
 
 st.sidebar.info(f"🤖 النموذج النشط: {user_model}\n🔗 الرابط: {base_url}")
-
-# خيارات متقدمة للشبكة وتوافق الاتصال
-with st.sidebar.expander("⚙️ خيارات الشبكة والاتصال المتقدمة"):
-    enable_custom_timeout = st.checkbox("زيادة مهلة الاتصال (Timeout = 120s)", value=True)
-    disable_ssl_verify = st.checkbox("تعطيل التحقق الصارم من شهادات SSL (توافق الشبكة)", value=False)
 
 if st.sidebar.button("⚡ اختبار اتصال النموذج والمفتاح (Test)"):
     if not user_api_key:
         st.sidebar.error("من فضلك أدخل مفتاح الـ API أولاً لتتمكن من إرسال طلب الاختبار!")
     else:
-        with st.sidebar.spinner("جاري فحص حالة السيرفر والمفتاح وتوافق الشبكة..."):
+        with st.sidebar.spinner("جاري فحص حالة السيرفر والمفتاح..."):
             try:
-                timeout_val = 120.0 if enable_custom_timeout else 30.0
-                http_client_opt = httpx.Client(verify=not disable_ssl_verify, timeout=timeout_val)
-                test_client = openai.OpenAI(api_key=user_api_key, base_url=base_url, http_client=http_client_opt)
+                test_client = openai.OpenAI(api_key=user_api_key, base_url=base_url, timeout=120.0)
                 test_client.chat.completions.create(
                     model=user_model,
                     messages=[{"role": "user", "content": "ping"}],
                     max_tokens=10
                 )
-                st.sidebar.success("✅ الاتصال ناجح ومستقر! المفتاح والنموذج يعملان بأفضل كفاءة وتوافق شبكي.")
+                st.sidebar.success("✅ الاتصال ناجح ومستقر! المفتاح والنموذج يعملان بأفضل كفاءة.")
             except Exception as e:
-                st.sidebar.error(f"❌ فشل الاتصال! تحقق من الرابط والمفتاح أو إعدادات الشبكة.\nالخطأ العلمي: {str(e)}")
+                st.sidebar.error(f"❌ فشل الاتصال! تحقق من الرابط والمفتاح.\nالخطأ العلمي: {str(e)}")
 
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
@@ -246,9 +236,7 @@ st.write(f"📂 الجلسة الحالية: **{st.session_state.chat_history_ar
 if not user_api_key:
     st.info("من فضلك، أدخل مفتاح الـ API الخاص بالمزود في القائمة الجانبية لبدء المحادثة وتحليل النقوش.", icon="🔑")
 else:
-    timeout_val = 120.0 if enable_custom_timeout else 30.0
-    http_client_opt = httpx.Client(verify=not disable_ssl_verify, timeout=timeout_val)
-    client = openai.OpenAI(api_key=user_api_key, base_url=base_url, http_client=http_client_opt)
+    client = openai.OpenAI(api_key=user_api_key, base_url=base_url, timeout=120.0)
     
     system_prompt = """[أنت باحث أكاديمي رفيع المستوى، وعالم آثار رقمي ومؤرخ متخصص في النقوش والكتابات العربية القديمة (خط المسند بجناحيه الجنوبي والشمالي، واللغات: السبئية، الحميرية، القتبانية، المعينية، والحضرمية، بالإضافة إلى النقوش الثمودية واللحيانية والصفاوية). اقرأ التعليمات الأكاديمية التالية بصرامة ونفذها خطوة بخطوة وفق منهجية علمية وموضوعية تامة، دون إهمال أي بند]
 مهمتك هي العمل كـ "باحث ومحلل أكاديمي لنقوش المسند والخطوط الشقيقة"، وتطبيق الخطوات المنهجية التالية عند استقبال أي صورة نقش أو نص حرفي:
@@ -375,4 +363,4 @@ else:
             except Exception as e:
                 progress_bar.empty()
                 status_text.empty()
-                st.error(f"حدث خطأ أثناء الاتصال بالـ API أو استلام التقرير النهائي: {e}\nتأكد من صحة الرابط (Base URL)، المفتاح، النموذج، وإعدادات الشبكة المتقدمة.")
+                st.error(f"حدث خطأ أثناء الاتصال بالـ API أو استلام التقرير النهائي: {e}\nتأكد من صحة الرابط (Base URL)، المفتاح، والنموذج المختار.")
