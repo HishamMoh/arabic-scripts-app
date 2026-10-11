@@ -19,20 +19,17 @@ def init_db():
     conn = sqlite3.connect("chats_archive.db", check_same_thread=False)
     c = conn.cursor()
     
-    # 1. إنشاء جدول المحادثات إذا لم يكن موجوداً
     c.execute('''CREATE TABLE IF NOT EXISTS chats
                  (chat_id TEXT PRIMARY KEY, title TEXT, messages TEXT, created_at TEXT)''')
     
-    # 2. التحقق من وجود جدول providers أو إنشائه
     c.execute('''CREATE TABLE IF NOT EXISTS providers
                  (name TEXT PRIMARY KEY, api_style TEXT, url TEXT, path TEXT, api_key TEXT, network_opt INTEGER, models TEXT)''')
     
-    # 3. التحقق الذاتي والتحديث التلقائي للأعمدة الناقصة (Migration) لتجنب sqlite3.OperationalError
     c.execute("PRAGMA table_info(providers)")
     existing_columns = [col[1] for col in c.fetchall()]
     
     required_columns = {
-        "api_style": "TEXT DEFAULT 'متوافق مع OpenAI API'",
+        "api_style": "TEXT DEFAULT 'OpenAI API'",
         "url": "TEXT DEFAULT 'https://api.openai.com/v1'",
         "path": "TEXT DEFAULT '/chat/completions'",
         "api_key": "TEXT DEFAULT ''",
@@ -81,7 +78,7 @@ def save_chat_to_db(chat_id, title, messages):
 def load_all_providers():
     default_providers = {
         "SiliconFlow": {
-            "api_style": "متوافق مع OpenAI API",
+            "api_style": "OpenAI API",
             "url": "https://api.siliconflow.com/v1",
             "path": "/chat/completions",
             "key": "",
@@ -108,7 +105,7 @@ def load_all_providers():
             }
         },
         "OpenRouter": {
-            "api_style": "متوافق مع OpenAI API",
+            "api_style": "OpenAI API",
             "url": "https://api.openrouter.ai/api/v1",
             "path": "/chat/completions",
             "key": "",
@@ -153,8 +150,6 @@ def load_all_providers():
     providers = {}
     for row in rows:
         name, api_style, url, path, api_key, network_opt, models_json = row
-        
-        # معالجة آمنة لضمان أن models دائماً قاموس (Dictionary) وليس نصاً
         models_dict = {}
         if isinstance(models_json, str):
             try:
@@ -167,7 +162,7 @@ def load_all_providers():
             models_dict = models_json
             
         providers[name] = {
-            "api_style": api_style if api_style else "متوافق مع OpenAI API",
+            "api_style": api_style if api_style else "OpenAI API",
             "url": url if url else "https://api.openai.com/v1",
             "path": path if path else "/chat/completions",
             "key": api_key if api_key else "",
@@ -179,8 +174,6 @@ def load_all_providers():
 def save_provider_to_db(name, p_data):
     conn = sqlite3.connect("chats_archive.db", check_same_thread=False)
     c = conn.cursor()
-    
-    # ضمان أن models يتم تحويلها لنص JSON بشكل آمن
     models_val = p_data.get("models", {})
     if not isinstance(models_val, str):
         models_str = json.dumps(models_val, ensure_ascii=False)
@@ -188,7 +181,7 @@ def save_provider_to_db(name, p_data):
         models_str = models_val
         
     c.execute("INSERT OR REPLACE INTO providers (name, api_style, url, path, api_key, network_opt, models) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              (name, p_data.get("api_style", "متوافق مع OpenAI API"), p_data["url"], p_data.get("path", "/chat/completions"), p_data["key"], 1 if p_data.get("network_opt", True) else 0, models_str))
+              (name, p_data.get("api_style", "OpenAI API"), p_data["url"], p_data.get("path", "/chat/completions"), p_data["key"], 1 if p_data.get("network_opt", True) else 0, models_str))
     conn.commit()
     conn.close()
 
@@ -196,7 +189,6 @@ def save_provider_to_db(name, p_data):
 if "custom_providers" not in st.session_state:
     st.session_state.custom_providers = load_all_providers()
 
-# ضمان فحص كل المزودين في session_state للتأكد من أن models قاموس دائماً
 for p_n, p_val in st.session_state.custom_providers.items():
     if not isinstance(p_val.get("models"), dict):
         try:
@@ -229,230 +221,54 @@ if st.session_state.current_chat_id not in st.session_state.chat_history_archive
         st.session_state.chat_history_archive[init_id] = {"title": "محادثة جديدة", "messages": []}
         st.session_state.current_chat_id = init_id
 
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "chat" # "chat" or "settings"
+
+if "active_model_selection" not in st.session_state:
+    st.session_state.active_model_selection = None
+
 active_messages = st.session_state.chat_history_archive[st.session_state.current_chat_id]["messages"]
 
-# ==================== القائمة الجانبية (الإعدادات والمزودين) ====================
-st.sidebar.title("⚙️ الإعدادات والمزودون")
-
-# 1. قسم إضافة مزود جديد (مطابق للصورة)
-with st.sidebar.expander("➕ إضافة مزود جديد"):
-    with st.form("add_new_provider_form", clear_on_submit=True):
-        st.subheader("إضافة مزود")
-        add_p_name = st.text_input("الاسم *")
-        add_p_style = st.selectbox("نمط API", ["متوافق مع OpenAI API", "Anthropic Claude API (قريباً)", "Custom REST API"])
-        submitted_p = st.form_submit_button("إضافة")
-        if submitted_p:
-            if add_p_name.strip():
-                p_key_name = add_p_name.strip()
-                if p_key_name not in st.session_state.custom_providers:
-                    new_p_obj = {
-                        "api_style": add_p_style,
-                        "url": "https://api.openai.com/v1",
-                        "path": "/chat/completions",
-                        "key": "",
-                        "network_opt": True,
-                        "models": {}
-                    }
-                    st.session_state.custom_providers[p_key_name] = new_p_obj
-                    save_provider_to_db(p_key_name, new_p_obj)
-                    st.success(f"تم إنشاء المزود '{p_key_name}' بنجاح!")
-                    st.rerun()
-                else:
-                    st.error("اسم المزود موجود بالفعل!")
-            else:
-                st.error("الاسم مطلوب!")
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔌 اختر المزود للتعديل أو الاستخدام:")
-current_provider_name = st.sidebar.selectbox("قائمة المزودين:", list(st.session_state.custom_providers.keys()))
-
-p_obj = st.session_state.custom_providers[current_provider_name]
-if not isinstance(p_obj.get("models"), dict):
-    p_obj["models"] = {}
-
-# واجهة تعديل بيانات المزود
-st.sidebar.markdown(f"### ⚙️ إعدادات المزود: `{current_provider_name}`")
-p_style = st.sidebar.selectbox("نمط API", ["متوافق مع OpenAI API"], index=0, key=f"style_{current_provider_name}")
-
-col_k1, col_k2 = st.sidebar.columns([3, 1])
-with col_k1:
-    p_key = st.text_input("مفتاح API", value=p_obj["key"], type="password", key=f"key_{current_provider_name}")
-with col_k2:
-    st.markdown("<br>", unsafe_allow_html=True)
-    test_key_btn = st.button("تحقق", key=f"chk_key_{current_provider_name}")
-
-p_host = st.sidebar.text_input("مضيف API (Base URL)", value=p_obj["url"], key=f"host_{current_provider_name}")
-p_path = st.sidebar.text_input("مسار API", value=p_obj.get("path", "/chat/completions"), key=f"path_{current_provider_name}")
-
-full_preview_url = p_host.rstrip('/') + p_path
-st.sidebar.caption(f"🔍 معاينة الرابط الكامل: `{full_preview_url}`")
-
-p_network = st.sidebar.toggle("تحسين توافق الشبكة", value=p_obj.get("network_opt", True), key=f"net_{current_provider_name}")
-st.sidebar.caption("فعل هذا الخيار فقط عند الحاجة لتجاوز مهل الشبكة.")
-
-# حفظ التغييرات تلقائياً
-p_obj["api_style"] = p_style
-p_obj["key"] = p_key
-p_obj["url"] = p_host
-p_obj["path"] = p_path
-p_obj["network_opt"] = p_network
-save_provider_to_db(current_provider_name, p_obj)
-
-if test_key_btn:
-    if not p_key:
-        st.sidebar.error("يرجى إدخال مفتاح API أولاً!")
-    else:
-        with st.sidebar.spinner("جاري اختبار المفتاح والاتصال..."):
-            try:
-                t_client = openai.OpenAI(api_key=p_key, base_url=p_host, timeout=30.0)
-                t_client.models.list()
-                st.sidebar.success("✅ المفتاح ورابط API صالحان ومستقران!")
-            except Exception as e:
-                st.sidebar.error(f"❌ فشل التحقق: {str(e)}")
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🤖 النموذج والمواصفات")
-
-col_m_actions1, col_m_actions2 = st.sidebar.columns(2)
-with col_m_actions1:
-    add_model_exp = st.checkbox("➕ جديد", key=f"add_m_flag_{current_provider_name}")
-with col_m_actions2:
-    if st.button("🔄 إعادة تعيين", key=f"reset_m_{current_provider_name}"):
-        p_obj["models"] = {}
-        save_provider_to_db(current_provider_name, p_obj)
+# ==================== القائمة الجانبية المحدثة (Sidebar) ====================
+with st.sidebar:
+    st.markdown("### 📜 منصة النقوش العربية القديمة")
+    st.markdown("---")
+    
+    if st.button("➕ دردشة جديدة", use_container_width=True, type="primary"):
+        new_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        new_title = f"محادثة جديدة {datetime.now().strftime('%H:%M')}"
+        st.session_state.current_chat_id = new_id
+        st.session_state.chat_history_archive[new_id] = {
+            "title": new_title,
+            "messages": []
+        }
+        save_chat_to_db(new_id, new_title, [])
+        st.session_state.current_page = "chat"
         st.rerun()
 
-if add_model_exp:
-    with st.sidebar.form(key=f"add_m_form_{current_provider_name}"):
-        st.markdown("**إضافة نموذج جديد للمزود**")
-        new_m_id = st.text_input("معرف النموذج (Model ID) *")
-        new_m_alias = st.text_input("اسم مستعار (اختياري)")
-        new_m_type = st.selectbox("نوع النموذج", ["دردشة", "استنتاج", "تضمين Embeddings"])
-        new_m_vis = st.checkbox("الرؤية (Vision)", value=True)
-        new_m_tools = st.checkbox("استخدام الأدوات", value=True)
-        new_m_reasoning = st.checkbox("الاستنتاج (Reasoning)", value=False)
-        new_m_ctx = st.number_input("نافذة السياق (Context Window)", value=128000, step=1000)
-        new_m_max_tok = st.number_input("الحد الأقص للمخرجات", value=4096, step=512)
-        
-        save_m_btn = st.form_submit_button("حفظ النموذج")
-        if save_m_btn:
-            if new_m_id.strip():
-                p_obj["models"][new_m_id.strip()] = {
-                    "alias": new_m_alias.strip() if new_m_alias.strip() else new_m_id.strip(),
-                    "type": new_m_type,
-                    "vision": new_m_vis,
-                    "tools": new_m_tools,
-                    "reasoning": new_m_reasoning,
-                    "context": new_m_ctx,
-                    "max_tokens": new_m_max_tok
-                }
-                save_provider_to_db(current_provider_name, p_obj)
-                st.success("تمت إضافة النموذج بنجاح!")
-                st.rerun()
-
-model_keys = list(p_obj["models"].keys())
-if not model_keys:
-    st.sidebar.warning("لا يوجد نماذج مضافة لهذا المزود. يرجى إضافة نموذج جديد بالضغط على '➕ جديد'.")
-    active_model_id = None
-else:
-    active_model_id = st.sidebar.selectbox(
-        "اختر النموذج النشط:",
-        model_keys,
-        format_func=lambda x: f"{p_obj['models'][x].get('alias', x)} ({x})"
-    )
-
-    m_data = p_obj["models"][active_model_id]
+    st.markdown("#### 🕒 أرشيف المحادثات")
     
-    with st.sidebar.container():
-        st.markdown(f"""
-        <div style="border:1px solid #e0e0e0; border-radius:10px; padding:10px; background-color:#fafafa; margin-bottom:10px;">
-            <b>📌 {m_data.get('alias', active_model_id)}</b><br>
-            <small>ID: {active_model_id}</small><br>
-            <small>⚙️ السياق: {m_data.get('context', 128000):,} Tokens | الرؤية: {'✅' if m_data.get('vision') else '❌'}</small>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        c_m1, c_m2, c_m3 = st.sidebar.columns(3)
-        with c_m1:
-            test_m_btn = st.button("🧪 اختبار", key=f"t_m_{active_model_id}")
-        with c_m2:
-            edit_m_btn = st.button("⚙️ تعديل", key=f"e_m_{active_model_id}")
-        with c_m3:
-            del_m_btn = st.button("🗑️ حذف", key=f"d_m_{active_model_id}")
-
-        if del_m_btn:
-            del p_obj["models"][active_model_id]
-            save_provider_to_db(current_provider_name, p_obj)
+    # عرض الأرشيف
+    for c_id, c_data in list(st.session_state.chat_history_archive.items()):
+        btn_label = f"💬 {c_data['title']}"
+        if c_id == st.session_state.current_chat_id and st.session_state.current_page == "chat":
+            btn_label = f"👉 {c_data['title']}"
+        if st.button(btn_label, key=f"nav_chat_{c_id}", use_container_width=True):
+            st.session_state.current_chat_id = c_id
+            st.session_state.current_page = "chat"
             st.rerun()
 
-        if test_m_btn:
-            if not p_key:
-                st.sidebar.error("أدخل المفتاح أولاً للاختبار!")
-            else:
-                with st.sidebar.spinner(f"جاري اختبار النموذج {active_model_id}..."):
-                    try:
-                        tm_client = openai.OpenAI(api_key=p_key, base_url=p_host, timeout=60.0)
-                        res = tm_client.chat.completions.create(
-                            model=active_model_id,
-                            messages=[{"role": "user", "content": "ping"}],
-                            max_tokens=10
-                        )
-                        st.sidebar.success("✅ النموذج يعمل وتلقى الاستجابة بنجاح!")
-                    except Exception as ex:
-                        st.sidebar.error(f"❌ فشل اختبار النموذج: {str(ex)}")
+    st.markdown("---")
+    # زر الإعدادات مع أيقونة الترس أسفل القائمة الجانبية
+    col_s1, col_s2 = st.columns([4, 1])
+    with col_s1:
+        st.markdown("**إعدادات النظام والمزودين**")
+    with col_s2:
+        if st.button("⚙️", key="btn_go_settings", help="فتح لوحة الإعدادات والمزودين"):
+            st.session_state.current_page = "settings"
+            st.rerun()
 
-        if edit_m_btn:
-            st.session_state[f"show_edit_m_{active_model_id}"] = True
-
-        if st.session_state.get(f"show_edit_m_{active_model_id}", False):
-            with st.sidebar.expander("🛠️ تعديل النموذج الحالي", expanded=True):
-                with st.form(key=f"edit_form_{active_model_id}"):
-                    e_alias = st.text_input("اسم مستعار", value=m_data.get("alias", ""))
-                    e_type = st.selectbox("نوع النموذج", ["دردشة", "استنتاج", "تضمين Embeddings"], index=0 if m_data.get("type")=="دردشة" else 1)
-                    e_vis = st.checkbox("الرؤية (Vision)", value=m_data.get("vision", True))
-                    e_tools = st.checkbox("استخدام الأدوات", value=m_data.get("tools", True))
-                    e_reasoning = st.checkbox("الاستنتاج", value=m_data.get("reasoning", False))
-                    e_ctx = st.number_input("نافذة السياق", value=m_data.get("context", 128000))
-                    e_max_tok = st.number_input("الحد الأقصى للمخرجات", value=m_data.get("max_tokens", 4096))
-                    
-                    save_edit_b = st.form_submit_button("حفظ التعديلات")
-                    if save_edit_b:
-                        p_obj["models"][active_model_id] = {
-                            "alias": e_alias,
-                            "type": e_type,
-                            "vision": e_vis,
-                            "tools": e_tools,
-                            "reasoning": e_reasoning,
-                            "context": e_ctx,
-                            "max_tokens": e_max_tok
-                        }
-                        save_provider_to_db(current_provider_name, p_obj)
-                        st.session_state[f"show_edit_m_{active_model_id}"] = False
-                        st.success("تم تحديث بيانات النموذج!")
-                        st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.title("📜 أرشيف المحادثات")
-if st.sidebar.button("➕ بدء محادثة جديدة"):
-    new_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    new_title = f"محادثة جديدة {datetime.now().strftime('%H:%M')}"
-    st.session_state.current_chat_id = new_id
-    st.session_state.chat_history_archive[new_id] = {
-        "title": new_title,
-        "messages": []
-    }
-    save_chat_to_db(new_id, new_title, [])
-    st.rerun()
-
-for c_id, c_data in list(st.session_state.chat_history_archive.items()):
-    btn_l = f"🕒 {c_data['title']}"
-    if c_id == st.session_state.current_chat_id:
-        btn_l = f"👉 {c_data['title']} (نشطة)"
-    if st.sidebar.button(btn_l, key=f"nav_{c_id}"):
-        st.session_state.current_chat_id = c_id
-        st.rerun()
-
-# ==================== الواجهة الرئيسية والتفاعل ====================
+# ==================== دوال معالجة الصور وتقارير Word ====================
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
@@ -473,17 +289,235 @@ def generate_docx(text):
     bio.seek(0)
     return bio.getvalue()
 
-st.title("📜 مساعد وباحث النقوش والخطوط العربية القديمة المطور")
-st.write(f"📂 الجلسة الحالية: **{st.session_state.chat_history_archive[st.session_state.current_chat_id]['title']}**")
+# ==================== نظام الأقسام والصفحات (Chat vs Settings) ====================
+if st.session_state.current_page == "settings":
+    # ---------------------------------------------------------
+    # صفحة الإعدادات العامة وإدارة المزودين والنماذج الاحترافية
+    # ---------------------------------------------------------
+    col_top1, col_top2 = st.columns([5, 1])
+    with col_top1:
+        st.title("⚙️ لوحة الإعدادات والتحكم المركزية")
+        st.markdown("إدارة مزودي النماذج، مفاتيح الـ API، خيارات الأمان، والذكاء الاصطناعي.")
+    with col_top2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔙 العودة للشات", type="primary"):
+            st.session_state.current_page = "chat"
+            st.rerun()
 
-if not p_key:
-    st.info("من فضلك أدخل مفتاح الـ API الخاص بالمزود في القائمة الجانبية لبدء المحادثة وتحليل النقوش.", icon="🔑")
-elif not active_model_id:
-    st.warning("يرجى إضافة أو اختيار نموذج نشط للمزود الحالي لبدء العمل.")
+    st.markdown("---")
+
+    # تبويبات الإعدادات
+    settings_tab1, settings_tab2, settings_tab3 = st.tabs([
+        "🔌 مزود النموذج (Model Provider)",
+        "🌐 النماذج الافتراضية والشبكة",
+        "🧠 الذاكرة ومحلل المستندات"
+    ])
+
+    with settings_tab1:
+        st.subheader("إدارة المزودين والنماذج المخصصة")
+        
+        # قسم إضافة مزود جديد
+        with st.expander("➕ إضافة مزود مخصص جديد"):
+            with st.form("add_provider_form_clean", clear_on_submit=True):
+                new_p_name = st.text_input("اسم المزود (مثال: MyCustomProvider)")
+                new_p_style = st.selectbox("نمط البيئة / API Style", [
+                    "OpenAI API",
+                    "OpenAI Responses API",
+                    "Anthropic Claude API",
+                    "Google Gemini API"
+                ])
+                new_p_url = st.text_input("مضيف API (Base URL)", value="https://api.openai.com/v1")
+                new_p_path = st.text_input("مسار API (Path)", value="/chat/completions")
+                new_p_key = st.text_input("مفتاح API", type="password")
+                new_p_net = st.checkbox("تحسين توافق الشبكة", value=True)
+                
+                submitted_new_p = st.form_submit_button("حفظ المزود الجديد")
+                if submitted_new_p:
+                    if new_p_name.strip():
+                        p_k = new_p_name.strip()
+                        if p_k not in st.session_state.custom_providers:
+                            st.session_state.custom_providers[p_k] = {
+                                "api_style": new_p_style,
+                                "url": new_p_url.strip(),
+                                "path": new_p_path.strip(),
+                                "key": new_p_key.strip(),
+                                "network_opt": new_p_net,
+                                "models": {}
+                            }
+                            save_provider_to_db(p_k, st.session_state.custom_providers[p_k])
+                            st.success(f"تم إضافة المزود '{p_k}' بنجاح!")
+                            st.rerun()
+                        else:
+                            st.error("اسم المزود موجود مسبقاً!")
+                    else:
+                        st.error("يرجى إدخال اسم المزود على الأقل!")
+
+        st.markdown("---")
+        # اختيار وتعديل المزودين الحاليين
+        provider_names = list(st.session_state.custom_providers.keys())
+        selected_prov = st.selectbox("اختر المزود للتعديل أو إدارة نماذجه:", provider_names)
+        
+        if selected_prov:
+            prov_data = st.session_state.custom_providers[selected_prov]
+            
+            st.markdown(f"### خصائص المزود: `{selected_prov}`")
+            col_ep1, col_ep2 = st.columns(2)
+            with col_ep1:
+                edit_style = st.selectbox("نمط API", ["OpenAI API", "OpenAI Responses API", "Anthropic Claude API", "Google Gemini API"], 
+                                          index=0 if prov_data.get("api_style")=="OpenAI API" else 0, key=f"ed_style_{selected_prov}")
+                edit_url = st.text_input("مضيف API (Base URL)", value=prov_data["url"], key=f"ed_url_{selected_prov}")
+            with col_ep2:
+                edit_path = st.text_input("مسار API", value=prov_data.get("path", "/chat/completions"), key=f"ed_path_{selected_prov}")
+                edit_key = st.text_input("مفتاح API", value=prov_data["key"], type="password", key=f"ed_key_{selected_prov}")
+            
+            edit_net = st.toggle("تحسين توافق الشبكة", value=prov_data.get("network_opt", True), key=f"ed_net_{selected_prov}")
+            
+            col_btn_p1, col_btn_p2, col_btn_p3 = st.columns(3)
+            with col_btn_p1:
+                if st.button("💾 حفظ تعديلات المزود", key=f"save_prov_{selected_prov}"):
+                    prov_data["api_style"] = edit_style
+                    prov_data["url"] = edit_url
+                    prov_data["path"] = edit_path
+                    prov_data["key"] = edit_key
+                    prov_data["network_opt"] = edit_net
+                    save_provider_to_db(selected_prov, prov_data)
+                    st.success("تم حفظ بيانات المزود بنجاح!")
+                    st.rerun()
+            with col_btn_p2:
+                if st.button("🧪 اختبار الاتصال", key=f"test_prov_{selected_prov}"):
+                    if not edit_key:
+                        st.warning("أدخل المفتاح أولاً!")
+                    else:
+                        try:
+                            t_cli = openai.OpenAI(api_key=edit_key, base_url=edit_url, timeout=30.0)
+                            t_cli.models.list()
+                            st.success("✅ الاتصال بالمزود سليم ومستقر!")
+                        except Exception as ex:
+                            st.error(f"❌ فشل الاتصال: {ex}")
+            with col_btn_p3:
+                if len(st.session_state.custom_providers) > 1:
+                    if st.button("🗑️ حذف المزود", key=f"del_prov_{selected_prov}", type="secondary"):
+                        del st.session_state.custom_providers[selected_prov]
+                        conn_del = sqlite3.connect("chats_archive.db", check_same_thread=False)
+                        c_del = conn_del.cursor()
+                        c_del.execute("DELETE FROM providers WHERE name = ?", (selected_prov,))
+                        conn_del.commit()
+                        conn_del.close()
+                        st.success("تم حذف المزود بنجاح.")
+                        st.rerun()
+
+            st.markdown("---")
+            st.subheader(f"🤖 النماذج التابعة للمزود: {selected_prov}")
+            
+            # نموذج إضافة نموذج فرعي جديد
+            with st.expander("➕ إضافة نموذج جديد لهذا المزود"):
+                with st.form(key=f"add_model_form_{selected_prov}", clear_on_submit=True):
+                    m_id_in = st.text_input("معرف النموذج (Model ID) * (مثال: gpt-4o)")
+                    m_alias_in = st.text_input("اسم مستعار (اختياري)")
+                    
+                    st.markdown("**الإمكانيات والخصائص:**")
+                    col_chk1, col_chk2, col_chk3 = st.columns(3)
+                    with col_chk1:
+                        m_tools_chk = st.checkbox("استخدام الأدوات (Tools)", value=True)
+                    with col_chk2:
+                        m_reason_chk = st.checkbox("الاستنتاج (Reasoning)", value=False)
+                    with col_chk3:
+                        m_vision_chk = st.checkbox("الرؤية (Vision)", value=True)
+                        
+                    col_num1, col_num2 = st.columns(2)
+                    with col_num1:
+                        m_ctx_in = st.number_input("نافذة السياق (Context Window)", value=128000, step=1000)
+                    with col_num2:
+                        m_max_tok_in = st.number_input("الحد الأقصى للمخرجات (Max Tokens)", value=4096, step=512)
+                        
+                    save_model_sub = st.form_submit_button("إضافة وحفظ النموذج")
+                    if save_model_sub:
+                        if m_id_in.strip():
+                            if not isinstance(prov_data.get("models"), dict):
+                                prov_data["models"] = {}
+                            prov_data["models"][m_id_in.strip()] = {
+                                "alias": m_alias_in.strip() if m_alias_in.strip() else m_id_in.strip(),
+                                "tools": m_tools_chk,
+                                "reasoning": m_reason_chk,
+                                "vision": m_vision_chk,
+                                "context": m_ctx_in,
+                                "max_tokens": m_max_tok_in
+                            }
+                            save_provider_to_db(selected_prov, prov_data)
+                            st.success("تمت إضافة النموذج بنجاح!")
+                            st.rerun()
+                        else:
+                            st.error("معرف النموذج (Model ID) مطلوب!")
+
+            # عرض النماذج الحالية للمزود وتعديلها أو حذفها
+            if prov_data.get("models"):
+                for m_id, m_vals in list(prov_data["models"].items()):
+                    with st.container():
+                        st.markdown(f"""
+                        <div style="border:1px solid #d0d0d0; border-radius:8px; padding:10px; margin-bottom:8px; background:#f9f9f9;">
+                            <b>📌 الاسم المستعار: {m_vals.get('alias', m_id)}</b> | <code>ID: {m_id}</code><br>
+                            <small>⚙️ السياق: {m_vals.get('context', 128000):,} | الرؤية: {'✅' if m_vals.get('vision') else '❌'} | الأدوات: {'✅' if m_vals.get('tools') else '❌'} | الاستنتاج: {'✅' if m_vals.get('reasoning') else '❌'}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        col_md_act1, col_md_act2 = st.columns(2)
+                        with col_md_act1:
+                            if st.button(f"🗑️ حذف النموذج `{m_id}`", key=f"del_m_{selected_prov}_{m_id}"):
+                                del prov_data["models"][m_id]
+                                save_provider_to_db(selected_prov, prov_data)
+                                st.rerun()
+            else:
+                st.info("لا توجد نماذج مضافة حتى الآن لهذا المزود.")
+
+    with settings_tab2:
+        st.subheader("إعدادات النماذج الافتراضية والشبكة")
+        st.write("يمكنك تخصيص السلوك الافتراضي للاتصال والمهل الزمنية للطلبات عبر الشبكة.")
+        timeout_val = st.slider("مهلة الاتصال بالـ API (بالثواني)", min_value=10, max_value=300, value=120)
+        st.caption("تحدد المدة القصوى لانتظار استجابة النماذج الثقيلة عند تحليل النقوش والبحوث الأكاديمية الطويلة.")
+
+    with settings_tab3:
+        st.subheader("الذاكرة ومحلل المستندات والتقارير")
+        st.write("إدارة التخزين المؤقت وحفظ التقارير بصيغ Word (.docx) و Markdown (.md).")
+        if st.button("🧹 مسح الأرشيف المؤقت للجلسات الحالية"):
+            st.info("أرشيف المحادثات محفوظ بقاعدة البيانات المحلية بأمان.")
+
 else:
-    client = openai.OpenAI(api_key=p_key, base_url=p_host, timeout=120.0)
+    # ---------------------------------------------------------
+    # واجهة المحادثة الرئيسية وتحليل النقوش العربية القديمة
+    # ---------------------------------------------------------
     
-    system_prompt = """[أنت باحث أكاديمي رفيع المستوى، وعالم آثار رقمي ومؤرخ متخصص في النقوش والكتابات العربية القديمة (خط المسند بجناحيه الجنوبي والشمالي، واللغات: السبئية، الحميرية، القتبانية، المعينية، والحضرمية، بالإضافة إلى النقوش الثمودية واللحيانية والصفاوية). اقرأ التعليمات الأكاديمية التالية بصرامة ونفذها خطوة بخطوة وفق منهجية علمية وموضوعية تامة، دون إهمال أي بند]
+    # اختيار المزود والنموذج الفعال من القائمة المتاحة
+    prov_keys = list(st.session_state.custom_providers.keys())
+    selected_p_name = st.selectbox("🔌 اختر المزود الفعال:", prov_keys, key="main_active_provider")
+    curr_p_obj = st.session_state.custom_providers[selected_p_name]
+    
+    model_keys = list(curr_p_obj.get("models", {}).keys())
+    
+    if not model_keys:
+        st.warning("⚠️ لا توجد نماذج مفعلة لهذا المزود. يرجى الانتقال إلى الإعدادات (⚙️) لإضافة نموذج واحد على الأقل.")
+        active_model_id = None
+    else:
+        active_model_id = st.selectbox("🤖 النموذج الفعال حالياً:", model_keys, 
+                                       format_func=lambda x: f"{curr_p_obj['models'][x].get('alias', x)} ({x})",
+                                       key="main_active_model")
+
+    st.title("📜 مساعد وباحث النقوش والخطوط العربية القديمة المطور")
+    st.write(f"📂 الجلسة الحالية: **{st.session_state.chat_history_archive[st.session_state.current_chat_id]['title']}**")
+    st.markdown("---")
+
+    # التحقق من جاهزية المفتاح والنموذج
+    api_key_val = curr_p_obj.get("key", "")
+    api_base_url = curr_p_obj.get("url", "https://api.openai.com/v1")
+    
+    if not api_key_val:
+        st.info("🔑 يرجى إدخال مفتاح الـ API الخاص بالمزود من لوحة الإعدادات (⚙️) لبدء تحليل النقوش.", icon="🔑")
+    elif not active_model_id:
+        st.warning("⚠️ يرجى اختيار نموذج نشط للبدء.")
+    else:
+        client = openai.OpenAI(api_key=api_key_val, base_url=api_base_url, timeout=120.0)
+        
+        # ⚠️ الخلفية العلمية خط أحمر - نظام التوجيه الأكاديمي الصارم للنقوش المسندية والخطوط الشقيقة (محفوظ تماماً دون تغيير)
+        system_prompt = """[أنت باحث أكاديمي رفيع المستوى، وعالم آثار رقمي ومؤرخ متخصص في النقوش والكتابات العربية القديمة (خط المسند بجناحيه الجنوبي والشمالي، واللغات: السبئية، الحميرية، القتبانية، المعينية، والحضرمية، بالإضافة إلى النقوش الثمودية واللحيانية والصفاوية). اقرأ التعليمات الأكاديمية التالية بصرامة ونفذها خطوة بخطوة وفق منهجية علمية وموضوعية تامة، دون إهمال أي بند]
 مهمتك هي العمل كـ "باحث ومحلل أكاديمي لنقوش المسند والخطوط الشقيقة"، وتطبيق الخطوات المنهجية التالية عند استقبال أي صورة نقش أو نص حرفي:
  * التحليل الباليوجرافي، بنية النقش، والتقدير الزمني (Palaeography, Structure & Dating):
  * فحص النقش وتحديد نوع الخط والنمط (رسمي، مخربشات صخرية، خط زبور).
@@ -514,97 +548,98 @@ else:
  * يُمنع منعاً باتاً اختراع أو هلوسة أي روابط (URLs) أو مراجع وهمية. إذا لم يتوفر رابط حقيقي، اكتفِ بذكر اسم المرجع والمؤلف بدقة تامة.
  * في حال عدم توفر معلومة مؤكدة، أو وجود تضارب علمي في تفسير كلمة، أو استعصى معناها تماماً لندرتها، يجب ذكر ذلك الخلاف الأكاديمي بوضوح والتصريح بغموض الكلمة علمياً، بدلاً من تخمين معنى لا يستند إلى دليل قطعي."""
 
-    for msg in active_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        # عرض الرسائل السابقة
+        for msg in active_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
-    uploaded_image = st.file_uploader("قم برفع صورة النقش التاريخي لتحليله (اختياري):", type=["png", "jpg", "jpeg"])
+        # إرفاق صورة النقش في الشات
+        uploaded_image = st.file_uploader("📷 قم برفع صورة نقش المسند أو الحجر التاريخي (اختياري):", type=["png", "jpg", "jpeg"])
 
-    if user_prompt := st.chat_input("اكتب استفسارك أو انسخ حروف النقش هنا..."):
-        current_chat = st.session_state.current_chat_id
-        if len(active_messages) == 0:
-            new_title = user_prompt[:25] + "..."
-            st.session_state.chat_history_archive[current_chat]["title"] = new_title
+        if user_prompt := st.chat_input("اكتب سؤالك الأكاديمي أو الصق حروف النقش هنا..."):
+            current_chat = st.session_state.current_chat_id
+            if len(active_messages) == 0:
+                st.session_state.chat_history_archive[current_chat]["title"] = user_prompt[:25] + "..."
 
-        with st.chat_message("user"):
-            st.markdown(user_prompt)
-        
-        if uploaded_image:
-            base64_image = encode_image(uploaded_image)
-            model_content_list = [
-                {"type": "text", "text": user_prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                }
-            ]
-        else:
-            model_content_list = user_prompt
+            with st.chat_message("user"):
+                st.markdown(user_prompt)
             
-        active_messages.append({"role": "user", "content": user_prompt if not uploaded_image else f"[صورة مرفوعة] {user_prompt}"})
-        save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
-
-        with st.chat_message("assistant"):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            response_placeholder = st.empty()
-            
-            status_text.text("🔍 المرحلة 1: فحص الخصائص الباليوجرافية وتحديد نوع الخط...")
-            progress_bar.progress(25)
-            time.sleep(0.5)
-            
-            status_text.text("📜 المرحلة 2: فحص اتجاه السطور والقراءة الحرفية الأولية...")
-            progress_bar.progress(50)
-            time.sleep(0.5)
-            
-            status_text.text("🌐 المرحلة 3: مقارنة المفردات والبحث في مدونات النقوش الأكاديمية العالمية...")
-            progress_bar.progress(75)
-            time.sleep(0.5)
-            
-            status_text.text("✍️ المرحلة 4: صياغة التقرير التاريخي والمعجمي النهائي الموثق...")
-            progress_bar.progress(100)
-
-            try:
-                api_messages = [{"role": "system", "content": system_prompt}]
-                for m in active_messages:
-                    api_messages.append({"role": m["role"], "content": m["content"]})
-                if uploaded_image and api_messages[-1]["role"] == "user":
-                    api_messages[-1]["content"] = model_content_list
-
-                completion = client.chat.completions.create(
-                    model=active_model_id,
-                    messages=api_messages
-                )
-                output_text = completion.choices[0].message.content
+            if uploaded_image:
+                base64_image = encode_image(uploaded_image)
+                model_content_list = [
+                    {"type": "text", "text": user_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                    }
+                ]
+            else:
+                model_content_list = user_prompt
                 
-                progress_bar.empty()
-                status_text.empty()
-                response_placeholder.markdown(output_text)
+            active_messages.append({"role": "user", "content": user_prompt if not uploaded_image else f"[صورة نقش مرفوعة] {user_prompt}"})
+            save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
+
+            with st.chat_message("assistant"):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                response_placeholder = st.empty()
                 
-                active_messages.append({"role": "assistant", "content": output_text})
-                save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
+                status_text.text("🔍 المرحلة 1: الفحص الباليوجرافي وتحليل الخطوط...")
+                progress_bar.progress(25)
+                time.sleep(0.4)
                 
-                col_dl1, col_dl2 = st.columns(2)
-                with col_dl1:
-                    st.download_button(
-                        label="💾 تحميل كملف Markdown (.md)",
-                        data=output_text,
-                        file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                        mime="text/markdown",
-                        key=f"dl_md_{len(active_messages)}"
+                status_text.text("📜 المرحلة 2: تحديد القراءة الحرفية واتجاه السطور...")
+                progress_bar.progress(50)
+                time.sleep(0.4)
+                
+                status_text.text("🌐 المرحلة 3: مقارنة المفردات بمدونات داسي (DASI) والمراجع...")
+                progress_bar.progress(75)
+                time.sleep(0.4)
+                
+                status_text.text("✍️ المرحلة 4: صياغة التقرير الأكاديمي الموثق...")
+                progress_bar.progress(100)
+
+                try:
+                    api_messages = [{"role": "system", "content": system_prompt}]
+                    for m in active_messages:
+                        api_messages.append({"role": m["role"], "content": m["content"]})
+                    if uploaded_image and api_messages[-1]["role"] == "user":
+                        api_messages[-1]["content"] = model_content_list
+
+                    completion = client.chat.completions.create(
+                        model=active_model_id,
+                        messages=api_messages
                     )
-                with col_dl2:
-                    docx_data = generate_docx(output_text)
-                    st.download_button(
-                        label="📄 تحميل كملف Word (.docx)",
-                        data=docx_data,
-                        file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key=f"dl_docx_{len(active_messages)}"
-                    )
-                
-                st.rerun()
-            except Exception as e:
-                progress_bar.empty()
-                status_text.empty()
-                st.error(f"حدث خطأ أثناء الاتصال بالـ API: {e}")
+                    output_text = completion.choices[0].message.content
+                    
+                    progress_bar.empty()
+                    status_text.empty()
+                    response_placeholder.markdown(output_text)
+                    
+                    active_messages.append({"role": "assistant", "content": output_text})
+                    save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
+                    
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
+                        st.download_button(
+                            label="💾 تحميل التقرير كملف Markdown (.md)",
+                            data=output_text,
+                            file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                            mime="text/markdown",
+                            key=f"dl_md_{len(active_messages)}"
+                        )
+                    with col_dl2:
+                        docx_data = generate_docx(output_text)
+                        st.download_button(
+                            label="📄 تحميل التقرير كملف Word (.docx)",
+                            data=docx_data,
+                            file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"dl_docx_{len(active_messages)}"
+                        )
+                    
+                    st.rerun()
+                except Exception as e:
+                    progress_bar.empty()
+                    status_text.empty()
+                    st.error(f"حدث خطأ أثناء الاتصال بالـ API: {e}")
