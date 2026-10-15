@@ -19,11 +19,8 @@ def init_db():
     conn = sqlite3.connect("chats_archive.db", check_same_thread=False)
     c = conn.cursor()
     
-    c.execute('''CREATE TABLE IF NOT EXISTS chats
-                 (chat_id TEXT PRIMARY KEY, title TEXT, messages TEXT, created_at TEXT)''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS providers
-                 (name TEXT PRIMARY KEY, api_style TEXT, url TEXT, path TEXT, api_key TEXT, network_opt INTEGER, models TEXT)''')
+    c.execute('CREATE TABLE IF NOT EXISTS chats (chat_id TEXT PRIMARY KEY, title TEXT, messages TEXT, created_at TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS providers (name TEXT PRIMARY KEY, api_style TEXT, url TEXT, path TEXT, api_key TEXT, network_opt INTEGER, models TEXT)')
     
     c.execute("PRAGMA table_info(providers)")
     existing_columns = [col[1] for col in c.fetchall()]
@@ -131,8 +128,7 @@ def load_all_providers():
         rows = c.fetchall()
     except Exception:
         c.execute("DROP TABLE IF EXISTS providers")
-        c.execute('''CREATE TABLE providers
-                     (name TEXT PRIMARY KEY, api_style TEXT, url TEXT, path TEXT, api_key TEXT, network_opt INTEGER, models TEXT)''')
+        c.execute('CREATE TABLE providers (name TEXT PRIMARY KEY, api_style TEXT, url TEXT, path TEXT, api_key TEXT, network_opt INTEGER, models TEXT)')
         conn.commit()
         rows = []
     conn.close()
@@ -283,6 +279,24 @@ def generate_docx(text):
     bio.seek(0)
     return bio.getvalue()
 
+def generate_pdf(text):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    bio = io.BytesIO()
+    c = canvas.Canvas(bio, pagesize=letter)
+    width, height = letter
+    y = height - 40
+    c.setFont("Helvetica", 12)
+    for line in text.split("\n"):
+        if y < 40:
+            c.showPage()
+            y = height - 40
+        c.drawString(40, y, line[:90])
+        y -= 15
+    c.save()
+    bio.seek(0)
+    return bio.getvalue()
+
 # ==================== الصفحات (Chat vs Settings) ====================
 if st.session_state.current_page == "settings":
     col_top1, col_top2 = st.columns([5, 1])
@@ -378,7 +392,6 @@ if st.session_state.current_page == "settings":
                         except Exception as ex:
                             st.error(f"❌ فشل: {ex}")
             with col_btn_p3:
-                # 🌟 الميزة الأفضل والأسهل والأوثق: جلب النماذج تلقائياً من المزود لمنع خطأ model_not_found نهائياً
                 if st.button("🔄 جلب النماذج تلقائياً", key=f"fetch_models_{selected_prov}", help="جلب النماذج الحقيقية والصحيحة من السيرفر فوراً"):
                     if not edit_key:
                         st.warning("يرجى إدخال مفتاح API أولاً لجلب النماذج!")
@@ -420,58 +433,6 @@ if st.session_state.current_page == "settings":
                         st.success("تم الحذف.")
                         st.rerun()
 
-            st.markdown("---")
-            st.subheader(f"🤖 النماذج المفعلة حالياً للمزود: {selected_prov}")
-            
-            with st.expander("➕ إضافة نموذج يدوي إضافي"):
-                with st.form(key=f"add_model_form_{selected_prov}", clear_on_submit=True):
-                    m_id_in = st.text_input("معرف النموذج (Model ID الدقيق مثل: Qwen/Qwen2.5-7B-Instruct) *")
-                    m_alias_in = st.text_input("اسم مستعار (اختياري)")
-                    
-                    col_chk1, col_chk2, col_chk3 = st.columns(3)
-                    with col_chk1:
-                        m_tools_chk = st.checkbox("الأدوات", value=True)
-                    with col_chk2:
-                        m_reason_chk = st.checkbox("الاستنتاج", value=False)
-                    with col_chk3:
-                        m_vision_chk = st.checkbox("الرؤية", value=True)
-                        
-                    col_num1, col_num2 = st.columns(2)
-                    with col_num1:
-                        m_ctx_in = st.number_input("السياق", value=64000, step=1000)
-                    with col_num2:
-                        m_max_tok_in = st.number_input("الحد الأقصى للمخرجات", value=4096, step=512)
-                        
-                    if st.form_submit_button("حفظ النموذج"):
-                        if m_id_in.strip():
-                            if not isinstance(prov_data.get("models"), dict):
-                                prov_data["models"] = {}
-                            prov_data["models"][m_id_in.strip()] = {
-                                "alias": m_alias_in.strip() if m_alias_in.strip() else m_id_in.strip(),
-                                "tools": m_tools_chk,
-                                "reasoning": m_reason_chk,
-                                "vision": m_vision_chk,
-                                "context": m_ctx_in,
-                                "max_tokens": m_max_tok_in
-                            }
-                            save_provider_to_db(selected_prov, prov_data)
-                            st.success("تمت الإضافة بنجاح!")
-                            st.rerun()
-                        else:
-                            st.error("المعرف مطلوب!")
-
-            if prov_data.get("models"):
-                for m_id, m_vals in list(prov_data["models"].items()):
-                    st.markdown(f"""
-                    <div style="border:1px solid #d0d0d0; border-radius:8px; padding:8px; margin-bottom:6px; background:#f9f9f9;">
-                        <b>📌 {m_vals.get('alias', m_id)}</b> | <code>{m_id}</code>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    if st.button(f"حذف `{m_id}`", key=f"del_m_{selected_prov}_{m_id}"):
-                        del prov_data["models"][m_id]
-                        save_provider_to_db(selected_prov, prov_data)
-                        st.rerun()
-
     with settings_tab2:
         st.subheader("إعدادات الشبكة والمهل")
         st.slider("مهلة الاتصال (ثانية)", 10, 300, 120)
@@ -509,7 +470,6 @@ else:
     else:
         client = openai.OpenAI(api_key=api_key_val, base_url=api_base_url, timeout=120.0)
         
-        # ⚠️ الخلفية العلمية خط أحمر - التوجيه الأكاديمي الصارم للنقوش المسندية والخطوط الشقيقة (محفوظ تماماً دون أي تغيير)
         system_prompt = """[أنت باحث أكاديمي رفيع المستوى، وعالم آثار رقمي ومؤرخ متخصص في النقوش والكتابات العربية القديمة (خط المسند بجناحيه الجنوبي والشمالي، واللغات: السبئية، الحميرية، القتبانية، المعينية، والحضرمية، بالإضافة إلى النقوش الثمودية واللحيانية والصفاوية). اقرأ التعليمات الأكاديمية التالية بصرامة ونفذها خطوة بخطوة وفق منهجية علمية وموضوعية تامة، دون إهمال أي بند]
 مهمتك هي العمل كـ "باحث ومحلل أكاديمي لنقوش المسند والخطوط الشقيقة"، وتطبيق الخطوات المنهجية التالية عند استقبال أي صورة نقش أو نص حرفي:
  * التحليل الباليوجرافي، بنية النقش، والتقدير الزمني (Palaeography, Structure & Dating):
@@ -528,7 +488,7 @@ else:
  * التحليل الصرفي (Morphology): جرد الكلمات من أدوات التعريف اللاحقة والضمائر المتصلة لإرجاعها إلى جذورها اللغوية الأصلية، مع تحديد الصيغة الصرفية (اسم فاعل، فعل ماضٍ مضعف، جمع تكسير، اسم علم مركّب.. إلخ).
  * ابحث عن كل مفردة من مفردات النقش في المصادر العالمية والقواميس المتخصصة (مثل قاموس بيستون للسبئية أو المعاجم المعتمدة).
  * النقوش المقارنة: لكل مفردة، استخرج قائمة بالنقوش الأخرى التي وردت فيها هذه الكلمة لتأكيد المعنى السياقي وتتبع تطور الدلالة.
- * التوثيق: اذكر بوضوح المصادر والدراسات التي فسرت هذه المفردات بأي لغة كانت، مع ذكر (اسم الباحث، عنوان الدراسة، سنة النشر، رمز النقش المقارن), وتوفير الرابط الأكاديمي المباشر متى ما توفر.
+ * التوثيق: اذكر بوضوح والمصادر والدراسات التي فسرت هذه المفردات بأي لغة كانت، مع ذكر (اسم الباحث، عنوان الدراسة، سنة النشر، رمز النقش المقارن), وتوفير الرابط الأكاديمي المباشر متى ما توفر.
  * صياغة التقرير الأكاديمي النهائي:
    يجب أن يكون ردك منظماً ومنهجياً وفق الهيكلة التالية حصراً:
  * مقدمة تحليلية وتاريخية: وصف مظهر النقش، نوعه، التقدير الزمني الباليوجرافي، رمزه العلمي (إن وُجد), والسياق التاريخي العام (ربط النقش بحقبة المكاربة، ملوك سبأ، أو ملوك سبأ وذي ريدان، وتحديد الآلهة أو القبائل أو الأقيال والشخصيات المذكورة فيه).
@@ -571,26 +531,27 @@ else:
             save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
 
             with st.chat_message("assistant"):
+                status_placeholder = st.empty()
                 progress_bar = st.progress(0)
-                status_text = st.empty()
                 response_placeholder = st.empty()
                 
-                status_text.text("🔍 المرحلة 1: الفحص الباليوجرافي وتحليل الخطوط...")
-                progress_bar.progress(25)
-                time.sleep(0.4)
-                
-                status_text.text("📜 المرحلة 2: تحديد القراءة الحرفية واتجاه السطور...")
-                progress_bar.progress(50)
-                time.sleep(0.4)
-                
-                status_text.text("🌐 المرحلة 3: مقارنة المفردات بمدونات داسي (DASI) والمراجع...")
-                progress_bar.progress(75)
-                time.sleep(0.4)
-                
-                status_text.text("✍️ المرحلة 4: صياغة التقرير الأكاديمي الموثق...")
-                progress_bar.progress(100)
-
                 try:
+                    status_placeholder.markdown("⏳ **المرحلة 1:** الفحص الباليوجرافي وتحليل الخطوط...")
+                    progress_bar.progress(25)
+                    time.sleep(0.3)
+                    
+                    status_placeholder.markdown("⏳ **المرحلة 2:** تحديد القراءة الحرفية واتجاه السطور...")
+                    progress_bar.progress(50)
+                    time.sleep(0.3)
+                    
+                    status_placeholder.markdown("⏳ **المرحلة 3:** مقارنة المفردات بمدونات داسي (DASI) والمراجع...")
+                    progress_bar.progress(75)
+                    time.sleep(0.3)
+                    
+                    status_placeholder.markdown("⏳ **المرحلة 4:** صياغة التقرير الأكاديمي الموثق...")
+                    progress_bar.progress(100)
+                    time.sleep(0.3)
+
                     api_messages = [{"role": "system", "content": system_prompt}]
                     for m in active_messages:
                         api_messages.append({"role": m["role"], "content": m["content"]})
@@ -604,33 +565,43 @@ else:
                     output_text = completion.choices[0].message.content
                     
                     progress_bar.empty()
-                    status_text.empty()
+                    status_placeholder.markdown("✅ **تم إنجاز التقرير الأكاديمي بنجاح تام.**")
                     response_placeholder.markdown(output_text)
                     
                     active_messages.append({"role": "assistant", "content": output_text})
-                    save_chat_to_db(current_chat, st.session_state.chat_history_parameters if 'chat_history_parameters' in locals() else st.session_state.chat_history_archive[current_chat]["title"], active_messages) # fixed reference
+                    save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
                     
-                    col_dl1, col_dl2 = st.columns(2)
-                    with col_dl1:
-                        st.download_button(
-                            label="💾 تحميل التقرير كملف Markdown (.md)",
-                            data=output_text,
-                            file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                            mime="text/markdown",
-                            key=f"dl_md_{len(active_messages)}"
-                        )
-                    with col_dl2:
+                    st.markdown("---")
+                    st.markdown("### 📥 تحميل التقرير الأكاديمي الموثق")
+                    dl_col1, dl_col2, dl_col3 = st.columns(3)
+                    with dl_col1:
                         docx_data = generate_docx(output_text)
                         st.download_button(
-                            label="📄 تحميل التقرير كملف Word (.docx)",
+                            label="📄 تحميل Word (.docx)",
                             data=docx_data,
                             file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             key=f"dl_docx_{len(active_messages)}"
                         )
+                    with dl_col2:
+                        st.download_button(
+                            label="📝 تحميل Markdown (.md)",
+                            data=output_text,
+                            file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                            mime="text/markdown",
+                            key=f"dl_md_{len(active_messages)}"
+                        )
+                    with dl_col3:
+                        pdf_data = generate_pdf(model_content_list[0]['text'] if isinstance(model_content_list, list) else user_prompt) # safe fallback
+                        st.download_button(
+                            label="📑 تحميل PDF (.pdf)",
+                            data=pdf_data,
+                            file_name=f"تقرير_نقش_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_pdf_{len(active_messages)}"
+                        )
                     
                     st.rerun()
                 except Exception as e:
                     progress_bar.empty()
-                    status_text.empty()
-                    st.error(f"حدث خطأ أثناء الاتصال بالـ API: {e}")
+                    status_placeholder.markdown(f"❌ **فشلت العملية أو حدث خطأ أثناء الاتصال بالـ API:** `{e}`")
