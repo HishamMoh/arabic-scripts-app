@@ -1,18 +1,34 @@
 import streamlit as st
 import openai
 import base64
-import time
 from datetime import datetime
 import sqlite3
 import json
+import uuid
 import io
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 st.set_page_config(
     page_title="المختبر الرقمي لدراسات المسند ونقوش جنوب الجزيرة العربية القديمة",
     page_icon="📜",
     layout="wide"
 )
+
+st.markdown("""
+<style>
+:root { --ink:#172a35; --muted:#60717c; --accent:#147d72; --paper:#f5f7f6; }
+.stApp { background: linear-gradient(180deg,#f7faf9 0%,#fff 42%); color:var(--ink); }
+[data-testid="stSidebar"] { background:#f0f5f3; border-left:1px solid #dce7e2; }
+[data-testid="stSidebar"] h3 { color:#14594f; }
+.stButton > button, .stDownloadButton > button { border-radius:10px; font-weight:600; }
+[data-testid="stChatMessage"] { border:1px solid #e4ece8; border-radius:14px; padding:1rem; background:#fff; }
+[data-testid="stAlert"] { border-radius:12px; }
+small, .stCaption { color:var(--muted); }
+</style>
+""", unsafe_allow_html=True)
 
 # ==================== إعداد قاعدة البيانات وتحديث الهيكل تلقائياً ====================
 def init_db():
@@ -26,7 +42,7 @@ def init_db():
     existing_columns = [col[1] for col in c.fetchall()]
     
     required_columns = {
-        "api_style": "TEXT DEFAULT 'OpenAI API'",
+        "api_style": "TEXT DEFAULT 'OpenAI-compatible Chat Completions'",
         "url": "TEXT DEFAULT 'https://api.openai.com/v1'",
         "path": "TEXT DEFAULT '/chat/completions'",
         "api_key": "TEXT DEFAULT ''",
@@ -75,7 +91,7 @@ def save_chat_to_db(chat_id, title, messages):
 def load_all_providers():
     default_providers = {
         "SiliconFlow": {
-            "api_style": "OpenAI API",
+            "api_style": "OpenAI-compatible Chat Completions",
             "url": "https://api.siliconflow.com/v1",
             "path": "/chat/completions",
             "key": "",
@@ -102,7 +118,7 @@ def load_all_providers():
             }
         },
         "OpenRouter": {
-            "api_style": "OpenAI API",
+            "api_style": "OpenAI-compatible Chat Completions",
             "url": "https://api.openrouter.ai/api/v1",
             "path": "/chat/completions",
             "key": "",
@@ -158,7 +174,7 @@ def load_all_providers():
             models_dict = models_json
             
         providers[name] = {
-            "api_style": api_style if api_style else "OpenAI API",
+            "api_style": api_style if api_style else "OpenAI-compatible Chat Completions",
             "url": url if url else "https://api.openai.com/v1",
             "path": path if path else "/chat/completions",
             "key": api_key if api_key else "",
@@ -177,7 +193,7 @@ def save_provider_to_db(name, p_data):
         models_str = models_val
         
     c.execute("INSERT OR REPLACE INTO providers (name, api_style, url, path, api_key, network_opt, models) VALUES (?, ?, ?, ?, ?, ?, ?)",
-              (name, p_data.get("api_style", "OpenAI API"), p_data["url"], p_data.get("path", "/chat/completions"), p_data["key"], 1 if p_data.get("network_opt", True) else 0, models_str))
+              (name, p_data.get("api_style", "OpenAI-compatible Chat Completions"), p_data["url"], p_data.get("path", "/chat/completions"), p_data["key"], 1 if p_data.get("network_opt", True) else 0, models_str))
     conn.commit()
     conn.close()
 
@@ -197,7 +213,7 @@ if "chat_history_archive" not in st.session_state:
     if loaded_archive:
         st.session_state.chat_history_archive = loaded_archive
     else:
-        init_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        init_id = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}-{uuid.uuid4().hex[:8]}"
         init_title = f"محادثة جديدة {datetime.now().strftime('%H:%M')}"
         st.session_state.chat_history_archive = {
             init_id: {"title": init_title, "messages": []}
@@ -206,14 +222,14 @@ if "chat_history_archive" not in st.session_state:
 
 if "current_chat_id" not in st.session_state:
     chat_keys = list(st.session_state.chat_history_archive.keys())
-    st.session_state.current_chat_id = chat_keys[0] if chat_keys else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.current_chat_id = chat_keys[0] if chat_keys else f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}-{uuid.uuid4().hex[:8]}"
 
 if st.session_state.current_chat_id not in st.session_state.chat_history_archive:
     chat_keys = list(st.session_state.chat_history_archive.keys())
     if chat_keys:
         st.session_state.current_chat_id = chat_keys[0]
     else:
-        init_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        init_id = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}-{uuid.uuid4().hex[:8]}"
         st.session_state.chat_history_archive[init_id] = {"title": "محادثة جديدة", "messages": []}
         st.session_state.current_chat_id = init_id
 
@@ -228,7 +244,7 @@ with st.sidebar:
     st.markdown("---")
     
     if st.button("➕ دردشة جديدة", use_container_width=True, type="primary"):
-        new_id = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        new_id = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}-{uuid.uuid4().hex[:8]}"
         new_title = f"محادثة جديدة {datetime.now().strftime('%H:%M')}"
         st.session_state.current_chat_id = new_id
         st.session_state.chat_history_archive[new_id] = {
@@ -262,42 +278,44 @@ with st.sidebar:
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
+def resolve_openai_base_url(base_url, endpoint_path="/chat/completions"):
+    """OpenAI SDK appends /chat/completions itself; keep any custom API prefix."""
+    base = (base_url or "").strip().rstrip("/")
+    path = (endpoint_path or "/chat/completions").strip()
+    if not base:
+        raise ValueError("أدخل عنوان API")
+    if not path.startswith("/"):
+        path = "/" + path
+    suffix = "/chat/completions"
+    if not path.endswith(suffix):
+        raise ValueError("مسار الواجهة يجب أن ينتهي بـ /chat/completions")
+    prefix = path[:-len(suffix)].rstrip("/")
+    if prefix and base.endswith(prefix):
+        return base
+    return base + prefix
+
 def generate_docx(text):
     doc = Document()
     doc.add_heading("المختبر الرقمي لدراسات المسند ونقوش جنوب الجزيرة العربية القديمة", level=1)
     doc.add_paragraph("Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics")
     for line in text.split("\n"):
         if line.startswith("# "):
-            doc.add_heading(line[2:], level=1)
+            para = doc.add_heading(line[2:], level=1)
         elif line.startswith("## "):
-            doc.add_heading(line[3:], level=2)
+            para = doc.add_heading(line[3:], level=2)
         elif line.startswith("### "):
-            doc.add_heading(line[4:], level=3)
+            para = doc.add_heading(line[4:], level=3)
         else:
-            doc.add_paragraph(line)
+            para = doc.add_paragraph(line)
+        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        ppr = para._p.get_or_add_pPr()
+        bidi = OxmlElement("w:bidi")
+        ppr.append(bidi)
+        for run in para.runs:
+            run.font.name = "Arial"
+            run._element.get_or_add_rPr().rFonts.set(qn("w:cs"), "Arial")
     bio = io.BytesIO()
     doc.save(bio)
-    bio.seek(0)
-    return bio.getvalue()
-
-def generate_pdf(text):
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfgen import canvas
-    bio = io.BytesIO()
-    c = canvas.Canvas(bio, pagesize=letter)
-    width, height = letter
-    y = height - 40
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(40, y, "Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics")
-    y -= 25
-    c.setFont("Helvetica", 10)
-    for line in text.split("\n"):
-        if y < 40:
-            c.showPage()
-            y = height - 40
-        c.drawString(40, y, line[:95])
-        y -= 14
-    c.save()
     bio.seek(0)
     return bio.getvalue()
 
@@ -306,7 +324,8 @@ if st.session_state.current_page == "settings":
     col_top1, col_top2 = st.columns([5, 1])
     with col_top1:
         st.title("⚙️ لوحة الإعدادات والتحكم المركزية")
-        st.markdown("إدارة مزودي النماذج، ومزامنة النماذج المتاحة من السيرفر مباشرة.")
+        st.markdown("إدارة مزودي واجهة OpenAI-compatible، ومزامنة النماذج المتاحة من الخادم.")
+        st.caption("هذا الإصدار يتصل بواجهات Chat Completions المتوافقة مع OpenAI. لا تستخدمه مع واجهات Anthropic أو Gemini الأصلية مباشرة.")
     with col_top2:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔙 العودة للشات", type="primary"):
@@ -327,7 +346,7 @@ if st.session_state.current_page == "settings":
         with st.expander("➕ إضافة مزود مخصص جديد"):
             with st.form("add_provider_form_clean", clear_on_submit=True):
                 new_p_name = st.text_input("اسم المزود (مثال: SiliconFlow أو OpenRouter)")
-                new_p_style = st.selectbox("نمط API", ["OpenAI API", "OpenAI Responses API", "Anthropic Claude API", "Google Gemini API"])
+                new_p_style = st.selectbox("نمط API", ["OpenAI-compatible Chat Completions"])
                 new_p_url = st.text_input("مضيف API (Base URL)", value="https://api.siliconflow.com/v1")
                 new_p_path = st.text_input("مسار API", value="/chat/completions")
                 new_p_key = st.text_input("مفتاح API", type="password")
@@ -364,7 +383,7 @@ if st.session_state.current_page == "settings":
             st.markdown(f"### خصائص المزود: `{selected_prov}`")
             col_ep1, col_ep2 = st.columns(2)
             with col_ep1:
-                edit_style = st.selectbox("نمط API", ["OpenAI API", "OpenAI Responses API", "Anthropic Claude API", "Google Gemini API"], 
+                edit_style = st.selectbox("نمط API", ["OpenAI-compatible Chat Completions"], 
                                           index=0, key=f"ed_style_{selected_prov}")
                 edit_url = st.text_input("مضيف API (Base URL)", value=prov_data["url"], key=f"ed_url_{selected_prov}")
             with col_ep2:
@@ -390,7 +409,7 @@ if st.session_state.current_page == "settings":
                         st.warning("أدخل المفتاح أولاً!")
                     else:
                         try:
-                            t_cli = openai.OpenAI(api_key=edit_key, base_url=edit_url, timeout=30.0)
+                            t_cli = openai.OpenAI(api_key=edit_key, base_url=resolve_openai_base_url(edit_url, edit_path), timeout=30.0)
                             t_cli.models.list()
                             st.success("✅ الاتصال سليم!")
                         except Exception as ex:
@@ -402,7 +421,7 @@ if st.session_state.current_page == "settings":
                     else:
                         with st.spinner("جاري جلب قائمة النماذج المعتمدة من سيرفر المزود..."):
                             try:
-                                f_cli = openai.OpenAI(api_key=edit_key, base_url=edit_url, timeout=30.0)
+                                f_cli = openai.OpenAI(api_key=edit_key, base_url=resolve_openai_base_url(edit_url, edit_path), timeout=30.0)
                                 remote_models = f_cli.models.list()
                                 fetched_dict = {}
                                 for m in remote_models:
@@ -410,7 +429,7 @@ if st.session_state.current_page == "settings":
                                     fetched_dict[m_id] = {
                                         "alias": m_id,
                                         "type": "دردشة",
-                                        "vision": True,
+                                        "vision": False,
                                         "tools": True,
                                         "reasoning": False,
                                         "context": 64000,
@@ -439,7 +458,8 @@ if st.session_state.current_page == "settings":
 
     with settings_tab2:
         st.subheader("إعدادات الشبكة والمهل")
-        st.slider("مهلة الاتصال (ثانية)", 10, 300, 120)
+        st.info("تُحفظ مفاتيح المزودين في قاعدة SQLite المحلية لهذا التطبيق. لا تشارك ملف قاعدة البيانات، واستخدم مفاتيح محدودة الصلاحيات.")
+        st.slider("مهلة الاتصال (ثانية)", 10, 300, 120, key="api_timeout_seconds")
 
     with settings_tab3:
         st.subheader("إدارة الذاكرة")
@@ -461,35 +481,68 @@ else:
                                        key="main_active_model")
 
     st.title("📜 المختبر الرقمي لدراسات المسند ونقوش جنوب الجزيرة العربية القديمة")
+    st.caption("حلّل النصوص والصور، واحتفظ بسجل أبحاثك، ثم صدّر تقاريرك بصيغ قابلة للتحرير.")
     st.caption("Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics")
     st.write(f"📂 الجلسة الحالية: **{st.session_state.chat_history_archive[st.session_state.current_chat_id]['title']}**")
     st.markdown("---")
 
+    # عرض السجل دائماً، حتى عندما لم تتم إضافة مفتاح API بعد.
+    for msg in active_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # تبقى روابط التصدير متاحة بعد كل إعادة تشغيل للواجهة.
+    latest_answer = next((m.get("content", "") for m in reversed(active_messages) if m.get("role") == "assistant"), "")
+    if latest_answer:
+        with st.expander("📥 تصدير أحدث تقرير", expanded=False):
+            exp_col1, exp_col2 = st.columns(2)
+            stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            with exp_col1:
+                st.download_button("📄 تنزيل Word (.docx)", data=generate_docx(latest_answer),
+                    file_name=f"epigraphic_report_{stamp}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"export_docx_{st.session_state.current_chat_id}_{len(active_messages)}", use_container_width=True)
+            with exp_col2:
+                st.download_button("📝 تنزيل Markdown (.md)", data=latest_answer,
+                    file_name=f"epigraphic_report_{stamp}.md", mime="text/markdown",
+                    key=f"export_md_{st.session_state.current_chat_id}_{len(active_messages)}", use_container_width=True)
+
     api_key_val = curr_p_obj.get("key", "")
     api_base_url = curr_p_obj.get("url", "https://api.openai.com/v1")
+    try:
+        resolved_api_base = resolve_openai_base_url(api_base_url, curr_p_obj.get("path", "/chat/completions"))
+    except ValueError as endpoint_error:
+        resolved_api_base = None
+        st.error(f"إعداد عنوان API غير صالح: {endpoint_error}")
     
     if not api_key_val:
         st.info("🔑 يرجى إدخال مفتاح الـ API الخاص بالمزود من لوحة الإعدادات (⚙️) لبدء التحليل.", icon="🔑")
     elif not active_model_id:
         st.warning("⚠️ يرجى اختيار أو جلب نموذج نشط.")
+    elif not resolved_api_base:
+        st.info("صحّح عنوان API ومساره من الإعدادات للمتابعة.")
     else:
-        client = openai.OpenAI(api_key=api_key_val, base_url=api_base_url, timeout=120.0)
+        client = openai.OpenAI(
+            api_key=api_key_val,
+            base_url=resolved_api_base,
+            timeout=float(st.session_state.get("api_timeout_seconds", 120))
+        )
         
         # ⚠️ التعليمات الأكاديمية المطلقة المقتبسة من هيكل وثيقة (CIH 352) النموذجية القياسية
         system_prompt = '''[أنت خبير إبيغرافي وعالم آثار رقمي في "المختبر الرقمي لدراسات المسند ونقوش جنوب الجزيرة العربية القديمة" (Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics). مهمتك هي تحليل وتوثيق النقوش وفق أعلى وأحدث معايير التحقيق الأكاديمي الصارم المعتمَد في مدونات DASI و CSAI والدراسات السامية الدولية (مثل نموذج CIH 352)].
 
-عند استقبال أي صورة أو نص لنقش مسندي أو أثري، يجب أن تقوم بصياغة **تقرير دراسة وتوثيق إبيغرافي تحليلي لنقش مسند** ملتزماً بالهيكل والدقة العلمية والتصميم القياسي التالي حرفياً:
+عند استقبال أي صورة أو نص لنقش مسندي أو أثري، قدّم دراسة إبيغرافية مناسبة للمعطيات المتاحة، ولا تملأ الأقسام بمعلومات متخيلة. إذا لم تتوفر صورة أو نص مقروء، اطلب المادة اللازمة بدلاً من اختلاق تحليل. استخدم الهيكل التالي بمرونة وبأمانة علمية:
 
 ---
 ### 🏛️ رأس الوثيقة والمعلومات الإبيغرافية الأساسية
 - **المؤسسة:** المختبر الرقمي لدراسات المسند ونقوش جنوب الجزيرة العربية القديمة (Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics)
-- **رمز الوثيقة / Document Ref:** (توليد رمز أكاديمي دقيق مثل: `ARC-EPI-DASI / CSAI / [اسم المجموعة أو الموقع] ([الرمز المعياري إن وجد مثل CIH/RES/Ja/Ir/Ry])`)
+- **رمز الوثيقة / Document Ref:** اذكره فقط إذا زوّد به المستخدم أو أمكن التحقق منه من مصدر؛ وإلا فاكتب «غير متاح» ولا تنشئ رمزاً مصطنعاً.
 - **تاريخ الإصدار / Date:** [تاريخ اليوم]
 - **اسم الأثر / Title:** [عنوان النقش الأكاديمي بالعربية والإنجليزي]
-- **الموقع الأثري / Findspot:** [الموقع الجغرافي والقبلي الدقيق]
-- **الحقبة التقديرية / Period:** [تحديد القرن والعصر السياسي والتاريخي]
-- **الرمز بمدونة DASI / CIH:** [رمز المطابقة الأكاديمي]
-- **طراز الخط / Script Style:** [وصف شامل لطبيعة الخط والصخرة والباتينا الصحراوية] | **درجة المطابقة / Confidence:** [نسبة التحقيق 95%-100%]
+- **الموقع الأثري / Findspot:** اذكر الموقع فقط عند وجود دليل موثق؛ وإلا «غير معلوم من المعطيات».
+- **الحقبة التقديرية / Period:** لا تقدّر التاريخ إلا إذا سمحت خصائص موثقة بذلك، مع بيان أساس التقدير.
+- **الرمز بمدونة DASI / CIH:** اذكر رمزاً مطابقاً فقط بعد تحقق فعلي؛ وإلا «غير متحقق».
+- **طراز الخط / Script Style:** [وصف شامل لطبيعة الخط والصخرة والباتينا الصحراوية] | **درجة الثقة / Confidence:** [مرتفعة / متوسطة / منخفضة مع تعليلها؛ لا تضع نسبة رقمية مصطنعة]
 - **اتجاه القراءة / Direction:** [من اليمين إلى اليسار / خط المحراث، وعدد الأسطر] | **أداة الفصل / Divider:** [وصف الفواصل العمودية |]
 
 ---
@@ -535,7 +588,7 @@ else:
 
 ---
 ### سابعاً: التوثيق وقائمة المراجع الأكاديمية (Epigraphical Bibliography)
-تضمين مراجع أكاديمية عالمية حقيقية وموثقة وفق صيغة التوثيق القياسية:
+أورد مراجع ذات صلة فقط. لا تخترع بيانات نشر أو أرقام صفحات أو روابط؛ اذكر ما أنت واثق من صحته، وصرّح عند الحاجة بأن المرجع يحتاج إلى تحقق:
 1. Beeston, A. F. L. et al., Sabaic Dictionary (1982).
 2. Biella, J. C., Dictionary of Old South Arabian (1982).
 3. Corpus of South Arabian Inscriptions (CSAI) & Digital Archive for the Study of preIslamic Arabian Inscriptions (DASI).
@@ -546,17 +599,13 @@ else:
 ---
 ### 🔐 الختم الرقمي والتوقيع الإبيغرافي
 - **إعداد وتوثيق الباحث:** باحث في الإبيغرافيا والآثار — المختبر الرقمي لدراسات المسند ونقوش اليمن القديم
-- **الختم الرقمي:** `SHA256-EPIGRAPHIC-VERIFIED-DASI___CSAI___[رمز_النقش]` • **سنة التوثيق:** 2026
+- **حالة التحقق:** تحليل مولّد آلياً، غير مُراجع أو مُعتمد من DASI/CSAI ما لم يُذكر مصدر تحقق فعلي. لا تدّعِ وجود ختم أو توقيع رقمي غير مُنشأ فعلياً.
 
 ⚠️ **تنبيه الأمانة العلمية الصارم:**
-- التزم بالموضوعية والدقة التامة دون أي اختراع لروابط أو مراجع وهمية.
+- لا تختلق قراءة أو موقعاً أو تاريخاً أو رمزاً معيارياً أو مرجعاً أو رابطاً. ميّز بوضوح بين المعلومة الموثقة والاستنتاج والاحتمال، واكتب «غير معلوم من المعطيات» عند غياب الدليل.
 - إذا كان النص المرفوع غير مسندي أو غير واضح، صرّح بذلك بأمانة علمية مع تقديم البديل الأكاديمي المتاح.'''
 
-        for msg in active_messages:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-
-        uploaded_image = st.file_uploader("📷 قم برفع صورة نقش المسند أو الحجر التاريخي (اختياري):", type=["png", "jpg", "jpeg"])
+        uploaded_image = st.file_uploader("📷 ارفع صورة نقش (اختياري؛ يتطلب نموذجاً يدعم الصور)", type=["png", "jpg", "jpeg"], help="الصورة تُرسل إلى المزود المحدد؛ تحقق من دعم النموذج للرؤية وتكلفة معالجة الصور.")
 
         if user_prompt := st.chat_input("اكتب سؤالك الأكاديمي أو الصق حروف النقش هنا..."):
             current_chat = st.session_state.current_chat_id
@@ -572,7 +621,7 @@ else:
                     {"type": "text", "text": user_prompt},
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                        "image_url": {"url": f"data:{uploaded_image.type};base64,{base64_image}"}
                     }
                 ]
             else:
@@ -583,25 +632,10 @@ else:
 
             with st.chat_message("assistant"):
                 status_placeholder = st.empty()
-                progress_bar = st.progress(0)
                 response_placeholder = st.empty()
                 
                 try:
-                    status_placeholder.markdown("⏳ **المرحلة 1:** الفحص الباليوجرافي وتحليل خط المسند وقراءة الأسطر...")
-                    progress_bar.progress(25)
-                    time.sleep(0.3)
-                    
-                    status_placeholder.markdown("⏳ **المرحلة 2:** إجراء النقل الحرفي الصوتي (Beeston Standard) والتحليل السطري...")
-                    progress_bar.progress(50)
-                    time.sleep(0.3)
-                    
-                    status_placeholder.markdown("⏳ **المرحلة 3:** التحليل الصرفي والمعجمي ومطابقة المفردات بقواعد DASI و CSAI...")
-                    progress_bar.progress(75)
-                    time.sleep(0.3)
-                    
-                    status_placeholder.markdown("⏳ **المرحلة 4:** صياغة وثيقة التوثيق الإبيغرافي القياسية والختم الرقمي...")
-                    progress_bar.progress(100)
-                    time.sleep(0.3)
+                    status_placeholder.markdown("⏳ جارٍ تحليل الطلب والتواصل مع مزود النموذج…")
 
                     api_messages = [{"role": "system", "content": system_prompt}]
                     for m in active_messages:
@@ -613,46 +647,14 @@ else:
                         model=active_model_id,
                         messages=api_messages
                     )
-                    output_text = completion.choices[0].message.content
+                    output_text = completion.choices[0].message.content or "لم يُرجع النموذج نصاً. حاول مجدداً أو اختر نموذجاً آخر."
                     
-                    progress_bar.empty()
-                    status_placeholder.markdown("✅ **تم إنجاز التقرير والدراسة الإبيغرافية بنجاح تام.**")
+                    status_placeholder.markdown("✅ **اكتمل الرد.**")
                     response_placeholder.markdown(output_text)
                     
                     active_messages.append({"role": "assistant", "content": output_text})
                     save_chat_to_db(current_chat, st.session_state.chat_history_archive[current_chat]["title"], active_messages)
                     
-                    st.markdown("---")
-                    st.markdown("### 📥 تحميل التقرير الأكاديمي الموثق")
-                    dl_col1, dl_col2, dl_col3 = st.columns(3)
-                    with dl_col1:
-                        docx_data = generate_docx(output_text)
-                        st.download_button(
-                            label="📄 تحميل Word (.docx)",
-                            data=docx_data,
-                            file_name=f"تقرير_توثيق_إبيغرافي_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key=f"dl_docx_{len(active_messages)}"
-                        )
-                    with dl_col2:
-                        st.download_button(
-                            label="📝 تحميل Markdown (.md)",
-                            data=output_text,
-                            file_name=f"تقرير_توثيق_إبيغرافي_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                            mime="text/markdown",
-                            key=f"dl_md_{len(active_messages)}"
-                        )
-                    with dl_col3:
-                        pdf_data = generate_pdf(model_content_list[0]['text'] if isinstance(model_content_list, list) else user_prompt)
-                        st.download_button(
-                            label="📑 تحميل PDF (.pdf)",
-                            data=pdf_data,
-                            file_name=f"تقرير_توثيق_إبيغرافي_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                            mime="application/pdf",
-                            key=f"dl_pdf_{len(active_messages)}"
-                        )
-                    
                     st.rerun()
                 except Exception as e:
-                    progress_bar.empty()
-                    status_placeholder.markdown(f"❌ **فشلت العملية أو حدث خطأ أثناء الاتصال بالـ API:** `{e}`")
+                    status_placeholder.error(f"تعذّر إكمال الطلب. تحقق من مفتاح API وعنوان الخدمة والنموذج، ثم حاول مجدداً. التفاصيل: {str(e)[:500]}")
