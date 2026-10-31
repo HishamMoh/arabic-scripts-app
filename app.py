@@ -2,11 +2,12 @@
 """
 المختبر الرقمي لدراسات المسند ونقوش جنوب الجزيرة العربية القديمة
 Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics
-الإصدار 2.1 — واجهة احترافية + خصوصية كاملة + ميزات ميدانية (وضع داكن، مقارنة حية، تخزين مؤقت، معالج إعداد، تأمين مفاتيح).
+الإصدار 2.2 — هوية أكاديمية محسّنة، محاكاة آمنة، مقارنة حية، مزامنة ميدانية وتأمين الجلسة.
 """
 
 import base64
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -89,8 +90,20 @@ def goto(view_key: str) -> None:
 
 
 def hash_pin(pin: str) -> str:
-    """تجزئة رمز المرور السري."""
-    return hashlib.sha256(pin.encode()).hexdigest()
+    """اشتقاق تجزئة مملحة لرمز المرور (PBKDF2-HMAC-SHA256)."""
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), salt, 240_000)
+    return f"{salt.hex()}:{digest.hex()}"
+
+
+def verify_pin(pin: str, stored: str | None) -> bool:
+    """التحقق من رمز المرور دون مقارنة نصية مباشرة."""
+    try:
+        salt_hex, digest_hex = (stored or "").split(":", 1)
+        digest = hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), bytes.fromhex(salt_hex), 240_000)
+        return hmac.compare_digest(digest.hex(), digest_hex)
+    except (ValueError, TypeError):
+        return False
 
 
 # =====================================================================================
@@ -575,6 +588,10 @@ if "wizard_active" not in st.session_state:
 # حالة مقارنة النص الحي
 if "split_view_enabled" not in st.session_state:
     st.session_state.split_view_enabled = False
+if "last_comparison_image" not in st.session_state:
+    st.session_state.last_comparison_image = None
+if "mock_mode" not in st.session_state:
+    st.session_state.mock_mode = not bool(st.session_state.secret_keys or st.session_state.gemini_free_key)
 
 init_db()
 
@@ -865,7 +882,7 @@ def set_pending_image(data: bytes, name: str, mime: str) -> None:
 
 @st.dialog("🖼️ نافذة رفع صورة النقش", width="large", icon="🖼️")
 def upload_inscription_dialog() -> None:
-    st.caption("ارفع صورة واضحة للنقش (مسند / حجر أثري) أو التقطها بالكاميرا. تبقى الصورة داخل جلسة هذا المستخدم فقط ولا تُرفع إلى أي خادم إلا عند إرسالها للنموذج.")
+    st.caption("ارفع صورة واضحة للنقش أو التقطها بالكاميرا. تُعالج داخل جلسة التطبيق، ولا تُرسل إلى مزود خارجي إلا عند تشغيل البحث أو التحليل؛ ويمكن حفظها في مخزن الجلسة الميداني.")
     tab_file, tab_cam = st.tabs(["📁 رفع ملف", "📷 التقاط بالكاميرا"])
     with tab_file:
         up = st.file_uploader("صورة النقش", type=["png", "jpg", "jpeg", "webp"], key="dlg_file_upload")
@@ -986,7 +1003,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 /* ---------- الأزرار ---------- */
 .stButton>button, .stDownloadButton>button { border-radius: 12px !important; font-weight:600; }
 .stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#7c3aed,#2563eb) !important;
+  background: linear-gradient(135deg,#373b70,#535a8d) !important;
   border: none !important; color:#fff !important;
   box-shadow: 0 10px 22px -14px #7c3aed;
 }
@@ -1009,7 +1026,7 @@ section[data-testid="stSidebar"] .stButton>button {
 }
 section[data-testid="stSidebar"] .stButton>button:hover { background:#ffffff22 !important; }
 section[data-testid="stSidebar"] .stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#7c3aed,#2563eb) !important; border:none !important;
+  background: linear-gradient(135deg,#373b70,#535a8d) !important; border:none !important;
 }
 section[data-testid="stSidebar"] input { background:#ffffff10 !important; }
 section[data-testid="stSidebar"] .brand {
@@ -1018,7 +1035,7 @@ section[data-testid="stSidebar"] .brand {
 }
 section[data-testid="stSidebar"] .brand .mark {
   width:38px; height:38px; border-radius:12px; display:grid; place-items:center;
-  background:linear-gradient(135deg,#7c3aed,#0ea5e9); font-size:1.1rem;
+  background:linear-gradient(135deg,#a9823c,#535a8d); font-size:1.1rem;
 }
 section[data-testid="stSidebar"] .brand .t1 { font-weight:700; font-size:.86rem; }
 section[data-testid="stSidebar"] .brand .t2 { font-size:.66rem; color:#64748b !important; }
@@ -1035,8 +1052,8 @@ section[data-testid="stSidebar"] .privacy-box {
 .block-container [data-testid="stMarkdownContainer"], .block-container p,
 .block-container li, .block-container h1, .block-container h2,
 .block-container h3, .block-container h4 { text-align: right; color:#e2e8f0; }
-[data-baseweb="input"] input, [data-baseweb="textarea"] textarea { 
-  text-align: right; direction: rtl; background:#0f172a !important; color:#e2e8f0 !important; 
+[data-baseweb="input"] input, [data-baseweb="textarea"] textarea {
+  text-align: right; direction: rtl; background:#0f172a !important; color:#e2e8f0 !important;
 }
 [data-testid="stChatInput"] textarea { text-align: right; direction: rtl; background:#0f172a !important; }
 [data-testid="stFileUploaderDropzone"] { direction: rtl; }
@@ -1047,6 +1064,12 @@ code, pre { direction: ltr; text-align: left; unicode-bidi: embed; color:#a5b4fc
 .stSelectbox > div > div { background:#0f172a !important; color:#e2e8f0 !important; }
 .stDataFrame { background:#0f172a !important; }
 .stDataFrame td, .stDataFrame th { color:#e2e8f0 !important; }
+
+/* ملمس أكاديمي هادئ وتباين واضح */
+.stButton>button, .stDownloadButton>button { min-height:2.55rem; transition:transform .15s ease, box-shadow .15s ease; }
+.stButton>button:hover, .stDownloadButton>button:hover { transform:translateY(-1px); box-shadow:0 7px 18px -12px #252b3a88; }
+:focus-visible { outline:3px solid #c7a25b !important; outline-offset:2px; }
+@media (max-width: 720px) { .hero { padding:20px 18px; border-radius:16px; } .hero h1 {font-size:1.05rem;} .block-container {padding-left:1rem;padding-right:1rem;} }
 
 /* ---------- إخفاء الزخارف الافتراضية ---------- */
 #MainMenu, footer, div[data-testid="stDecoration"] { visibility:hidden; }
@@ -1060,13 +1083,13 @@ code, pre { direction: ltr; text-align: left; unicode-bidi: embed; color:#a5b4fc
 @import url('https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;600;700&display=swap');
 
 :root{
-  --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
-  --brand:#7c3aed; --brand2:#0ea5e9; --gold:#b45309;
-  --card:#ffffff; --soft:#f8fafc;
+  --ink:#252b3a; --muted:#647080; --line:#e6ddcc;
+  --brand:#373b70; --brand2:#777da5; --gold:#a9823c;
+  --card:#fffdf8; --soft:#f4efe5;
 }
 
 html, body, [class*="css"] { font-family: 'Noto Kufi Arabic', 'Segoe UI', Tahoma, sans-serif; }
-.stApp { background: linear-gradient(180deg,#f6f8fc 0%, #eef2f9 100%); }
+.stApp { background: linear-gradient(180deg,#f8f5ed 0%, #f0ece2 100%); }
 
 .block-container { padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1250px; }
 
@@ -1074,10 +1097,10 @@ html, body, [class*="css"] { font-family: 'Noto Kufi Arabic', 'Segoe UI', Tahoma
 .hero {
   position: relative; overflow: hidden;
   border-radius: 22px; padding: 26px 28px; margin-bottom: 18px;
-  background: radial-gradient(1200px 300px at 90% -20%, #a78bfa33, transparent),
-              linear-gradient(135deg,#1e1b4b 0%, #312e81 45%, #1e3a8a 100%);
-  color:#fff; border:1px solid #312e8133;
-  box-shadow: 0 18px 40px -24px #1e1b4b80;
+  background: radial-gradient(900px 280px at 90% -20%, #c7a25b44, transparent),
+              linear-gradient(135deg,#25294f 0%, #373b70 52%, #4b527e 100%);
+  color:#fff; border:1px solid #a9823c66;
+  box-shadow: 0 18px 40px -24px #25294f80;
 }
 .hero h1 { font-size: 1.30rem; line-height:1.75; margin:0 0 6px 0; font-weight:700; }
 .hero p  { margin:0; color:#c7d2fe; font-size:.82rem; letter-spacing:.3px; }
@@ -1091,13 +1114,13 @@ html, body, [class*="css"] { font-family: 'Noto Kufi Arabic', 'Segoe UI', Tahoma
 div[data-testid="stVerticalBlockBorderWrapper"] {
   border-radius: 18px !important;
   border: 1px solid var(--line) !important;
-  background: #fff !important;
-  box-shadow: 0 10px 26px -20px #0f172a80;
+  background: #fffdf8 !important;
+  box-shadow: 0 10px 26px -20px #252b3a40;
 }
-.sec-title { font-size:1rem; font-weight:700; color:#1e293b; margin:0 0 4px 0; }
+.sec-title { font-size:1rem; font-weight:700; color:#252b3a; margin:0 0 4px 0; }
 .sec-sub   { font-size:.75rem; color:#64748b; margin:0 0 10px 0; }
 .kv { font-size:.75rem; color:#475569; }
-.kv b { color:#0f172a; }
+.kv b { color:#252b3a; }
 
 /* ---------- الشرائح والوسوم ---------- */
 .pill {
@@ -1105,16 +1128,16 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
   font-size:.70rem; font-weight:600; border:1px solid;
 }
 .pill-ok   { color:#047857; background:#ecfdf5; border-color:#a7f3d0; }
-.pill-warn { color:#b45309; background:#fffbeb; border-color:#fde68a; }
+.pill-warn { color:#795b22; background:#f7efd9; border-color:#d9c18b; }
 .pill-info { color:#1d4ed8; background:#eff6ff; border-color:#bfdbfe; }
 .pill-off  { color:#475569; background:#f1f5f9; border-color:#e2e8f0; }
 
 /* ---------- الأزرار ---------- */
 .stButton>button, .stDownloadButton>button { border-radius: 12px !important; font-weight:600; }
 .stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#7c3aed,#2563eb) !important;
+  background: linear-gradient(135deg,#373b70,#535a8d) !important;
   border: none !important; color:#fff !important;
-  box-shadow: 0 10px 22px -14px #4338ca;
+  box-shadow: 0 10px 22px -14px #373b70;
 }
 
 /* ---------- الدردشة ---------- */
@@ -1125,7 +1148,7 @@ div[data-testid="stChatMessage"] {
 
 /* ---------- الشريط الجانبي ---------- */
 section[data-testid="stSidebar"] {
-  background: linear-gradient(180deg,#0f172a 0%, #1e1b4b 100%);
+  background: linear-gradient(180deg,#272b50 0%, #373b70 100%);
   border-left: 1px solid #1e293b;
 }
 section[data-testid="stSidebar"] * { color:#e2e8f0 !important; }
@@ -1135,7 +1158,7 @@ section[data-testid="stSidebar"] .stButton>button {
 }
 section[data-testid="stSidebar"] .stButton>button:hover { background:#ffffff22 !important; }
 section[data-testid="stSidebar"] .stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#7c3aed,#2563eb) !important; border:none !important;
+  background: linear-gradient(135deg,#373b70,#535a8d) !important; border:none !important;
 }
 section[data-testid="stSidebar"] input { background:#ffffff10 !important; }
 section[data-testid="stSidebar"] .brand {
@@ -1144,7 +1167,7 @@ section[data-testid="stSidebar"] .brand {
 }
 section[data-testid="stSidebar"] .brand .mark {
   width:38px; height:38px; border-radius:12px; display:grid; place-items:center;
-  background:linear-gradient(135deg,#7c3aed,#0ea5e9); font-size:1.1rem;
+  background:linear-gradient(135deg,#a9823c,#535a8d); font-size:1.1rem;
 }
 section[data-testid="stSidebar"] .brand .t1 { font-weight:700; font-size:.86rem; }
 section[data-testid="stSidebar"] .brand .t2 { font-size:.66rem; color:#94a3b8 !important; }
@@ -1166,6 +1189,12 @@ section[data-testid="stSidebar"] .privacy-box {
 [data-testid="stFileUploaderDropzone"] { direction: rtl; }
 code, pre { direction: ltr; text-align: left; unicode-bidi: embed; }
 
+/* تفاعلات واضحة ومتوافقة مع الشاشات الصغيرة */
+.stButton>button, .stDownloadButton>button { min-height:2.55rem; transition:transform .15s ease, box-shadow .15s ease; }
+.stButton>button:hover, .stDownloadButton>button:hover { transform:translateY(-1px); box-shadow:0 7px 18px -12px #252b3a88; }
+:focus-visible { outline:3px solid #c7a25b !important; outline-offset:2px; }
+@media (max-width: 720px) { .hero { padding:20px 18px; border-radius:16px; } .hero h1 {font-size:1.05rem;} .block-container {padding-left:1rem;padding-right:1rem;} }
+
 /* ---------- إخفاء الزخارف الافتراضية ---------- */
 #MainMenu, footer, div[data-testid="stDecoration"] { visibility:hidden; }
 [data-testid="stStatusWidget"] { visibility:hidden; }
@@ -1185,7 +1214,7 @@ def lock_session_dialog() -> None:
     st.caption("أدخل رمزاً سرياً (4-8 أرقام أو أحرف) لحماية مفاتيح API من العرض غير المصرّح.")
     pin = st.text_input("الرمز السري", type="password", max_chars=8, key="lock_pin_input")
     pin_confirm = st.text_input("تأكيد الرمز", type="password", max_chars=8, key="lock_pin_confirm")
-    
+
     if st.button("🔒 تفعيل التأمين", type="primary", width="stretch"):
         if not pin or len(pin) < 4:
             st.error("الرمز يجب أن يكون 4 أحرف على الأقل.")
@@ -1202,9 +1231,9 @@ def lock_session_dialog() -> None:
 def unlock_session_dialog() -> None:
     st.caption("أدخل رمز المرور لعرض المفاتيح واستخدامها.")
     pin = st.text_input("الرمز السري", type="password", max_chars=8, key="unlock_pin_input")
-    
+
     if st.button("🔓 فتح", type="primary", width="stretch"):
-        if hash_pin(pin) == st.session_state.session_pin_hash:
+        if verify_pin(pin, st.session_state.session_pin_hash):
             st.session_state.session_locked = False
             st.success("تم فتح الجلسة.")
             st.rerun()
@@ -1226,9 +1255,9 @@ def require_unlock() -> bool:
 @st.dialog("🧙 المعالج الذكي للإعداد الذاتي", width="large", icon="🧙")
 def setup_wizard_dialog() -> None:
     st.caption("إعداد تلقائي بضغطة زر للأكاديميين غير التقنيين — فقط أدخل المفتاح وسنضبط الباقي.")
-    
+
     step = st.session_state.get("wizard_step", 1)
-    
+
     if step == 1:
         st.markdown("### الخطوة 1: اختر نوع المفتاح")
         provider_type = st.selectbox(
@@ -1236,19 +1265,19 @@ def setup_wizard_dialog() -> None:
             ["Google Gemini (مجاني)", "OpenRouter", "SiliconFlow", "مزود مخصص"],
             key="wizard_provider_type"
         )
-        
+
         if st.button("التالي ⬅", type="primary", width="stretch"):
             st.session_state.wizard_step = 2
             st.session_state.wizard_provider_type = provider_type
             st.rerun()
-    
+
     elif step == 2:
         st.markdown(f"### الخطوة 2: أدخل مفتاح API")
         st.caption(f"المزود المختار: **{st.session_state.wizard_provider_type}**")
-        
+
         api_key = st.text_input("مفتاح API", type="password", key="wizard_api_key",
                                 placeholder="AIza... / sk-...")
-        
+
         col1, col2 = st.columns(2)
         with col1:
             if st.button("⬅ رجوع"):
@@ -1261,7 +1290,7 @@ def setup_wizard_dialog() -> None:
                 else:
                     with st.spinner("جارٍ الإعداد التلقائي..."):
                         success = auto_configure_provider(
-                            st.session_state.wizard_provider_type, 
+                            st.session_state.wizard_provider_type,
                             api_key.strip()
                         )
                     if success:
@@ -1269,18 +1298,18 @@ def setup_wizard_dialog() -> None:
                         st.rerun()
                     else:
                         st.error("فشل الإعداد. تحقق من المفتاح.")
-    
+
     elif step == 3:
         st.markdown("### ✅ تم الإعداد بنجاح!")
         st.success("تم ضبط المزود وجلب النماذج القياسية تلقائياً.")
-        
+
         provider_name = st.session_state.wizard_provider_type
         if provider_name in st.session_state.providers:
             models = list(st.session_state.providers[provider_name].get("models", {}).keys())
             st.markdown(f"**النماذج المتاحة:** {len(models)}")
             for m in models[:5]:
                 st.markdown(f"- `{m}`")
-        
+
         if st.button("إغلاق", type="primary", width="stretch"):
             st.session_state.wizard_step = 1
             st.session_state.wizard_active = False
@@ -1294,13 +1323,13 @@ def auto_configure_provider(provider_type: str, api_key: str) -> bool:
             # التحقق من صلاحية المفتاح
             test_prompt = "مرحبا"
             gemini_generate(api_key, GEMINI_MODELS[0], test_prompt)
-            
+
             st.session_state.gemini_free_key = api_key
             if "Google Gemini (مجاني)" not in st.session_state.providers:
                 st.session_state.providers["Google Gemini (مجاني)"] = DEFAULT_PROVIDERS["Google Gemini (مجاني)"].copy()
                 save_provider(OWNER, "Google Gemini (مجاني)", st.session_state.providers["Google Gemini (مجاني)"])
             return True
-        
+
         elif provider_type == "OpenRouter":
             st.session_state.providers["OpenRouter"] = {
                 "api_style": "OpenAI API",
@@ -1312,7 +1341,7 @@ def auto_configure_provider(provider_type: str, api_key: str) -> bool:
             save_provider(OWNER, "OpenRouter", st.session_state.providers["OpenRouter"])
             st.session_state.secret_keys["OpenRouter"] = api_key
             return True
-        
+
         elif provider_type == "SiliconFlow":
             st.session_state.providers["SiliconFlow"] = {
                 "api_style": "OpenAI API",
@@ -1324,7 +1353,7 @@ def auto_configure_provider(provider_type: str, api_key: str) -> bool:
             save_provider(OWNER, "SiliconFlow", st.session_state.providers["SiliconFlow"])
             st.session_state.secret_keys["SiliconFlow"] = api_key
             return True
-        
+
         else:  # مزود مخصص
             # محاولة اكتشاف تلقائي
             if api_key.startswith("AIza"):
@@ -1343,7 +1372,7 @@ def auto_configure_provider(provider_type: str, api_key: str) -> bool:
                 save_provider(OWNER, "مزود مخصص", st.session_state.providers["مزود مخصص"])
                 st.session_state.secret_keys["مزود مخصص"] = api_key
                 return True
-                
+
     except Exception as e:
         st.error(f"خطأ: {e}")
         return False
@@ -1358,7 +1387,7 @@ with st.sidebar:
               <div class="mark">🗿</div>
               <div>
                 <div class="t1">مختبر المسند الرقمي</div>
-                <div class="t2">South Arabian Epigraphy Lab · v2.1</div>
+                <div class="t2">South Arabian Epigraphy Lab · v2.2</div>
               </div>
             </div>""",
         unsafe_allow_html=True,
@@ -1372,6 +1401,7 @@ with st.sidebar:
         }
         save_chat(OWNER, nid, title, [])
         st.session_state.current_chat_id = nid
+        st.session_state.last_comparison_image = None
         goto("chat")
 
     upload_icon_button("sb_upload_btn", "رفع نقش")
@@ -1399,13 +1429,14 @@ with st.sidebar:
         if st.button(label, key=f"sb_chat_{cid}",
                      type="primary" if active else "secondary", width="stretch"):
             st.session_state.current_chat_id = cid
+            st.session_state.last_comparison_image = None
             goto("chat")
 
     if shown == 0:
         st.caption("لا توجد نتائج مطابقة.")
 
     st.markdown("<div class='side-label'>🔒 الخصوصية والأمان</div>", unsafe_allow_html=True)
-    
+
     # زر تأمين الجلسة
     if st.session_state.session_locked:
         if st.button("🔓 فتح الجلسة", width="stretch", key="sb_unlock"):
@@ -1413,12 +1444,12 @@ with st.sidebar:
     else:
         if st.button("🔒 تأمين الجلسة", width="stretch", key="sb_lock"):
             lock_session_dialog()
-    
+
     st.markdown(
         """<div class="privacy-box">
              جلسة معزولة تماماً: مفاتيح API وسجل المحادثات والصورة المرفقة
              مرتبطة بهذا المتصفح/الجلسة فقط، ولا تُكتب في الرابط ولا تظهر لمستخدم آخر.
-             تُمسح المفاتيح تلقائياً عند إغلاق التبويب.
+             تبقى المفاتيح في ذاكرة جلسة التطبيق ولا تدخل قاعدة البيانات؛ قد يستمر الاتصال فترة قصيرة بعد إغلاق التبويب حتى ينتهي اتصال Streamlit.
            </div>""",
         unsafe_allow_html=True,
     )
@@ -1444,7 +1475,9 @@ with st.sidebar:
                     st.session_state.pop(k, None)
                 st.session_state.secret_keys = {}
                 st.session_state.gemini_free_key = ""
+                st.session_state.mock_mode = True
                 st.session_state.pending_image = None
+                st.session_state.last_comparison_image = None
                 st.session_state.confirm_wipe = False
                 st.session_state.session_locked = False
                 st.session_state.session_pin_hash = None
@@ -1482,7 +1515,7 @@ with head_mid:
                  help="تبديل المظهر الميداني الداكن عالي التباين للعمل تحت أشعة الشمس"):
         st.session_state.field_dark_mode = not dark_mode
         st.rerun()
-    
+
     # زر تأمين سريع في الترويسة
     if st.session_state.session_locked:
         if st.button("🔓 جلسة مقفلة", width="stretch", key="head_unlock"):
@@ -1601,7 +1634,7 @@ def render_search_view() -> None:
 
             st.markdown("**مرفق الصورة (اختياري)**")
             attachment_status()
-            
+
             # أزرار الإجراءات
             a1, a2, a3 = st.columns(3)
             with a1:
@@ -1630,7 +1663,9 @@ def render_search_view() -> None:
                     }
             else:
                 key = st.session_state.gemini_free_key
-                if not key:
+                if st.session_state.session_locked:
+                    st.warning("الجلسة مقفلة. افتحها قبل إجراء طلبات خارجية، أو استخدم البحث المحلي.")
+                elif not key:
                     st.error("أضف مفتاح Gemini المجاني من اللوحة الجانبية للاستعلام (يُحفظ في جلستك فقط).")
                 else:
                     prompt = (
@@ -1658,7 +1693,7 @@ def render_search_view() -> None:
                 "<div class='sec-sub'>مفتاح من حسابك المجاني في Google AI Studio — منفصل تماماً عن مزودي التحليل.</div>",
                 unsafe_allow_html=True,
             )
-            
+
             # التحقق من القفل قبل عرض حقل المفتاح
             if st.session_state.session_locked:
                 st.markdown("<span class='pill pill-warn'>🔒 الجلسة مقفلة</span>", unsafe_allow_html=True)
@@ -1692,8 +1727,8 @@ def render_search_view() -> None:
             )
             st.divider()
             st.markdown(
-                "<div class='kv'>🔒 <b>خصوصية:</b> يُرسل المفتاح من متصفحك إلى Google مباشرة عند الضغط على "
-                "«ابدأ البحث» فقط، ولا يُخزَّن خارج جلستك.</div>",
+                "<div class='kv'>🔒 <b>خصوصية:</b> يرسل التطبيق المفتاح من جلسة الخادم إلى Google عند تنفيذ البحث فقط، "
+                "ولا يُخزَّن في قاعدة البيانات.</div>",
                 unsafe_allow_html=True,
             )
 
@@ -1838,7 +1873,7 @@ def render_chat_view() -> None:
         # حقل المفتاح مع التحقق من القفل
         if not cur_key:
             if st.session_state.session_locked:
-                st.markdown("<span class='pill pill-warn'>🔒 الجلسة مقفلة — افتحها لإضافة المفتاح</span>", 
+                st.markdown("<span class='pill pill-warn'>🔒 الجلسة مقفلة — افتحها لإضافة المفتاح</span>",
                            unsafe_allow_html=True)
                 if st.button("🔓 فتح الجلسة", key="chat_unlock"):
                     unlock_session_dialog()
@@ -1856,19 +1891,30 @@ def render_chat_view() -> None:
                 with kc2:
                     st.caption("يُستخدم هذا الاتصال للتحليل فقط. للمفاتيح المزعجة استخدم مفتاح Gemini المجاني في تبويب البحث.")
 
+    mock_mode = st.toggle(
+        "🧪 وضع المحاكاة الآمن — لا يرسل بيانات إلى أي مزود",
+        key="mock_mode",
+        help="يتيح تجربة الواجهة دون مفتاح API. النتائج التعليمية هنا توضيحية وليست تحليلاً أثرياً فعلياً.",
+    )
+    if mock_mode:
+        st.info("أنت في وضع المحاكاة: ستظهر استجابة تجريبية واضحة العلامة، ولن تُرسل الصورة أو النص إلى خدمة خارجية.", icon="🧪")
+    elif st.session_state.session_locked:
+        st.warning("الجلسة مقفلة؛ افتحها قبل استخدام مفاتيح API.", icon="🔒")
+
     st.write("")
 
     # ---------- وضع المقارنة الحية ----------
-    if st.session_state.split_view_enabled and st.session_state.pending_image:
+    comparison_image = st.session_state.pending_image or st.session_state.last_comparison_image
+    if st.session_state.split_view_enabled and comparison_image:
         st.markdown("<div class='sec-title'>🔀 مقارنة النص الحي (Split-View)</div>", unsafe_allow_html=True)
         st.markdown("<div class='sec-sub'>موازنة رسم الحرف الحجري بالنتيجة البرمجية فوراً</div>", unsafe_allow_html=True)
-        
+
         split_col1, split_col2 = st.columns(2, gap="medium")
         with split_col1:
             with st.container(border=True):
                 st.markdown("**🖼️ صورة النقش الأصلية**")
-                st.image(st.session_state.pending_image["bytes"], width="stretch")
-                st.caption(f"{st.session_state.pending_image['name']} · {bytes_to_kb(st.session_state.pending_image['size'])}")
+                st.image(comparison_image["bytes"], width="stretch")
+                st.caption(f"{comparison_image['name']} · {bytes_to_kb(comparison_image.get('size', len(comparison_image.get('bytes', b''))))}")
         with split_col2:
             with st.container(border=True):
                 st.markdown("**📜 النص المنسوخ والمترجم**")
@@ -1900,7 +1946,7 @@ def render_chat_view() -> None:
     st.write("")
     with st.container(border=True):
         attachment_status()
-        
+
         # زر حفظ للميدان بجانب حقل الإدخال
         cc1, cc2 = st.columns([1, 4])
         with cc1:
@@ -1917,6 +1963,8 @@ def render_chat_view() -> None:
 
     if prompt:
         image = st.session_state.pending_image
+        if image:
+            st.session_state.last_comparison_image = image
         if len(MESSAGES) == 0:
             ARCHIVE[CURRENT_CHAT]["title"] = prompt[:38]
         MESSAGES.append({
@@ -1927,6 +1975,28 @@ def render_chat_view() -> None:
             st.markdown(prompt)
         with st.chat_message("assistant", avatar="🗿"):
             try:
+                if st.session_state.mock_mode:
+                    text = (
+                        "### 🧪 استجابة محاكاة تعليمية\n\n"
+                        "هذه نتيجة توضيحية لا تستخدم نموذج ذكاء اصطناعي ولا تمثل قراءة نقش حقيقية. "
+                        "لا تعتمد عليها في النشر أو التوثيق الأكاديمي.\n\n"
+                        f"**طلب الباحث:** {prompt or 'تحليل الصورة المرفقة'}\n\n"
+                        f"**المرفق:** {image['name'] if image else 'لا توجد صورة'}\n\n"
+                        "**خطوات العمل المقترحة:**\n"
+                        "1. توثيق موضع النقش واتجاه القراءة وحالة السطح.\n"
+                        "2. إعداد نسخة دبلوماسية للحروف الظاهرة مع تمييز الأجزاء المتضررة.\n"
+                        "3. فصل النقل الحرفي عن الترجمة، ثم مراجعة القراءة مع مرجع متخصص.\n\n"
+                        "أوقف وضع المحاكاة وأضف مفتاح مزود موثوق للحصول على تحليل فعلي."
+                    )
+                    st.markdown(text)
+                    MESSAGES.append({"role": "assistant", "content": text})
+                    st.session_state.pending_image = None
+                    save_chat(OWNER, CURRENT_CHAT, ARCHIVE[CURRENT_CHAT]["title"], MESSAGES)
+                    st.rerun()
+                if st.session_state.session_locked:
+                    raise RuntimeError("الجلسة مقفلة. افتحها قبل استخدام مفاتيح API، أو واصل في وضع المحاكاة.")
+                if not cur_key:
+                    raise RuntimeError("لا يوجد مفتاح API لهذا المزود. أضف مفتاحاً أو فعّل وضع المحاكاة.")
                 if not sel_model:
                     raise RuntimeError("اختر نموذجاً أولاً (أو اجلب النماذج من الإعدادات).")
                 with st.status("جارٍ إنجاز الدراسة الإبيغرافية…", expanded=True) as status:
@@ -1957,25 +2027,66 @@ def render_chat_view() -> None:
 # =====================================================================================
 # 16) عرض قائمة الانتظار الميدانية (Offline Queue)
 # =====================================================================================
+def auto_sync_field_cache() -> int:
+    """مزامنة دورية آمنة: لا تعمل إلا عند وجود طلبات ومفتاح مفتوح واتصال فعلي."""
+    if st.session_state.session_locked or not st.session_state.gemini_free_key:
+        return 0
+    if not load_offline_queue(OWNER, "pending"):
+        return 0
+    now = time.time()
+    if now - st.session_state.get("last_field_sync_attempt", 0) < 55:
+        return 0
+    st.session_state.last_field_sync_attempt = now
+    try:
+        # استجابة HTTP (حتى 4xx) تعني أن الاتصال بالخدمة متاح؛ لا تُرسل بيانات المستخدم في هذا الفحص.
+        requests.get("https://generativelanguage.googleapis.com", timeout=4)
+    except requests.RequestException:
+        return 0
+    return process_offline_queue(OWNER, st.session_state.gemini_free_key)
+
+
+@st.fragment(run_every="60s")
 def render_offline_view() -> None:
+    auto_synced = auto_sync_field_cache()
+    if auto_synced:
+        st.toast(f"تمت مزامنة {auto_synced} طلباً تلقائياً.", icon="✅")
     st.markdown("<div class='sec-title'>⏳ قائمة الانتظار الميدانية (Offline Caching)</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='sec-sub'>الطلبات المحفوظة مؤقتاً للمعالجة عند توفر الاتصال بالإنترنت. "
-        "تُستخدم في المواقع الأثرية النائية بدون تغطية.</div>",
+        "<div class='sec-sub'>تُحفظ الطلبات محلياً في مخزن التطبيق الخاص بهذه الجلسة، ثم تُزامن تلقائياً "
+        "كل دقيقة عند توفر الاتصال ومفتاح Gemini مفتوح. هذه ليست ذاكرة متصفح/PWA؛ يلزم بقاء التطبيق متصلاً بالخادم.</div>",
         unsafe_allow_html=True,
     )
-    
+    if st.session_state.session_locked:
+        st.info("المزامنة التلقائية متوقفة أثناء قفل الجلسة حمايةً للمفتاح.")
+    elif not st.session_state.gemini_free_key:
+        st.info("سيتم الاحتفاظ بالطلبات حتى إدخال مفتاح Gemini؛ يمكنك تصفح الأقسام واختبارها في وضع المحاكاة.")
+
+    with st.container(border=True):
+        st.markdown("**➕ حفظ طلب للعمل عليه لاحقاً**")
+        with st.form("offline_enqueue_form", clear_on_submit=True):
+            offline_query = st.text_area("نص/وصف النقش أو المهمة", placeholder="اكتب وصفاً أو سؤالاً لحفظه دون إرسال الآن…", height=90)
+            cache_submit = st.form_submit_button("⏳ حفظ في قائمة الميدان", type="primary", use_container_width=True)
+            if cache_submit:
+                if not offline_query.strip() and not st.session_state.pending_image:
+                    st.warning("أدخل وصفاً أو أرفق صورة نقش أولاً.")
+                else:
+                    qid = enqueue_offline(OWNER, "analysis", offline_query.strip(), st.session_state.pending_image)
+                    st.success(f"حُفظ الطلب محلياً في مخزن الجلسة ({qid[:8]}).")
+                    st.rerun()
+
     # زر مزامنة يدوية
     col1, col2 = st.columns([1, 3])
     with col1:
         if st.button("🔄 مزامنة الآن", type="primary", width="stretch", key="sync_now"):
-            if not st.session_state.gemini_free_key:
+            if st.session_state.session_locked:
+                st.warning("افتح الجلسة قبل استخدام المفتاح للمزامنة.")
+            elif not st.session_state.gemini_free_key:
                 st.error("أضف مفتاح Gemini المجاني أولاً للمزامنة.")
             else:
                 with st.spinner("جارٍ مزامنة قائمة الانتظار…"):
                     processed = process_offline_queue(OWNER, st.session_state.gemini_free_key)
                 st.success(f"تمت معالجة {processed} عنصراً.")
-                time.sleep(0.5)
+                time.sleep(0.3)
                 st.rerun()
     with col2:
         pending = len(load_offline_queue(OWNER, "pending"))
@@ -1987,15 +2098,15 @@ def render_offline_view() -> None:
             f"مكتمل: <b>{done}</b> · فاشل: <b>{failed}</b></div>",
             unsafe_allow_html=True,
         )
-    
+
     st.divider()
-    
+
     # عرض قائمة الانتظار
     queue_items = load_offline_queue(OWNER)
     if not queue_items:
         st.info("قائمة الانتظار فارغة.")
         return
-    
+
     for item in queue_items:
         status_color = {
             "pending": "pill-warn",
@@ -2003,14 +2114,14 @@ def render_offline_view() -> None:
             "done": "pill-ok",
             "failed": "pill-off"
         }.get(item["status"], "pill-off")
-        
+
         status_label = {
             "pending": "⏳ قيد الانتظار",
             "processing": "⚙️ قيد المعالجة",
             "done": "✅ مكتمل",
             "failed": "❌ فاشل"
         }.get(item["status"], item["status"])
-        
+
         with st.container(border=True):
             qc1, qc2, qc3 = st.columns([3, 1, 1])
             with qc1:
@@ -2019,12 +2130,16 @@ def render_offline_view() -> None:
                 if item['image_name']:
                     st.caption(f"📷 {item['image_name']}")
             with qc2:
-                st.markdown(f"<span class='pill {status_color}'>{status_label}</span>", 
+                st.markdown(f"<span class='pill {status_color}'>{status_label}</span>",
                            unsafe_allow_html=True)
             with qc3:
                 if item["status"] == "done" and item["result"]:
                     with st.expander("📄 النتيجة"):
                         st.markdown(item["result"][:500] + "..." if len(item["result"]) > 500 else item["result"])
+                if item["status"] == "failed":
+                    if st.button("↻ إعادة", key=f"retry_queue_{item['queue_id']}", help="إعادته لقائمة الانتظار"):
+                        update_queue_item(OWNER, item["queue_id"], "pending")
+                        st.rerun()
                 if item["status"] in ("pending", "failed"):
                     if st.button("🗑️", key=f"del_queue_{item['queue_id']}", help="حذف من القائمة"):
                         delete_queue_item(OWNER, item["queue_id"])
@@ -2074,6 +2189,7 @@ def render_archive_view() -> None:
             with cc2:
                 if st.button("فتح", key=f"arch_open_{cid}", width="stretch"):
                     st.session_state.current_chat_id = cid
+                    st.session_state.last_comparison_image = None
                     goto("chat")
             with cc3:
                 md = "\n\n---\n\n".join(f"### {m['role']}\n{m['content']}" for m in c["messages"]) or "—"
@@ -2096,7 +2212,7 @@ def render_settings_view() -> None:
     st.markdown("<div class='sec-title'>⚙️ لوحة التحكم المركزية</div>", unsafe_allow_html=True)
     st.markdown("<div class='sec-sub'>إدارة المزودين والنماذج وإعدادات الشبكة — كل شيء معزول لهذا المستخدم.</div>",
                 unsafe_allow_html=True)
-    
+
     # زر المعالج الذكي البارز
     with st.container(border=True):
         st.markdown("### 🧙 المعالج الذكي للإعداد الذاتي")
@@ -2159,14 +2275,14 @@ def render_settings_view() -> None:
             if f"st_path_{sel}" not in st.session_state:
                 st.session_state[f"st_path_{sel}"] = prov.get("path", "")
             path = st.text_input("المسار", key=f"st_path_{sel}")
-            
+
             # حقل المفتاح مع التحقق من القفل
             if st.session_state.session_locked:
                 st.markdown("<span class='pill pill-warn'>🔒 مقفل</span>", unsafe_allow_html=True)
                 key_val = ""
             else:
                 key_val = st.text_input("مفتاح API (جلسة فقط)", type="password", key=f"st_key_{sel}")
-        
+
         if f"st_net_{sel}" not in st.session_state:
             st.session_state[f"st_net_{sel}"] = bool(prov.get("network_opt", True))
         net = st.toggle("تحسين توافق الشبكة", key=f"st_net_{sel}")
@@ -2249,8 +2365,8 @@ def render_settings_view() -> None:
     # ---- المفاتيح والخصوصية ----
     with tab2:
         st.markdown("#### 🔑 مفاتيح الجلسة")
-        st.caption("هذه المفاتيح موجودة في ذاكرة جلسة المتصفح فقط: لا تُكتب في قاعدة البيانات ولا تُضمَّن في الرابط، وتُمسح بإغلاق التبويب.")
-        
+        st.caption("هذه المفاتيح في ذاكرة جلسة التطبيق على الخادم: لا تُكتب في قاعدة البيانات ولا تُضمَّن في الرابط، وتُمحى بانتهاء الجلسة. رمز المرور قفل واجهة وليس تشفيراً للمفتاح؛ لا تترك جلسة غير موثوقة مفتوحة.")
+
         # التحقق من القفل قبل عرض المفاتيح
         if st.session_state.session_locked:
             st.warning("🔒 الجلسة مقفلة — افتحها لعرض المفاتيح.")
@@ -2265,7 +2381,7 @@ def render_settings_view() -> None:
                 st.info("لا مفاتيح مزودين في الجلسة.")
             gk = st.session_state.gemini_free_key
             st.markdown(f"- **Gemini المجاني (بحث)**: `{gk[:6]}…{gk[-4:]}`" if gk else "- **Gemini المجاني (بحث)**: غير مضبوط")
-            
+
             if st.button("🧹 مسح كل المفاتيح من الجلسة", key="wipe_keys"):
                 st.session_state.secret_keys = {}
                 st.session_state.gemini_free_key = ""
@@ -2282,7 +2398,7 @@ def render_settings_view() -> None:
             st.info("الجلسة غير مقفلة — أي شخص يصل للمتصفح يمكنه رؤية المفاتيح.")
             if st.button("🔒 تأمين الجلسة برمز مرور", key="settings_lock"):
                 lock_session_dialog()
-        
+
         if st.session_state.session_pin_hash:
             if st.button("🗑️ إزالة رمز المرور", key="remove_pin"):
                 st.session_state.session_pin_hash = None
@@ -2327,7 +2443,7 @@ def render_settings_view() -> None:
         st.divider()
         st.markdown("#### ℹ️ عن المنصة")
         st.markdown(
-            "الإصدار **2.1** — واجهة معاد ترتيبها، نافذة رفع نقش مستقلة، عزل كامل لكل مستخدم، "
+            "الإصدار **2.2** — هوية أكاديمية محسّنة، نافذة رفع نقش مستقلة، عزل لكل جلسة، "
             "بحث عن النقش يعمل بمفتاح **Gemini المجاني** أو محلياً **بدون أي مفتاح**، "
             "مع ميزات ميدانية: وضع داكن عالي التباين، مقارنة حية، تخزين مؤقت، معالج إعداد ذاتي، وتأمين مفاتيح."
         )
@@ -2349,7 +2465,7 @@ else:
 
 st.markdown(
     "<div style='text-align:center;color:#94a3b8;font-size:.7rem;padding-top:26px'>"
-    "مختبر المسند الرقمي · جلسة خاصة معزولة · لا تُشارَك المفاتيح ولا السجلات مع أي مستخدم آخر · v2.1"
+    "مختبر المسند الرقمي · جلسة خاصة معزولة · لا تُشارَك المفاتيح ولا السجلات مع أي مستخدم آخر · v2.2"
     "</div>",
     unsafe_allow_html=True,
 )
