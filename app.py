@@ -2,7 +2,7 @@
 """
 المختبر الرقمي لدراسات المسند ونقوش جنوب الجزيرة العربية القديمة
 Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics
-الإصدار 2.2 — هوية أكاديمية محسّنة، محاكاة آمنة، مقارنة حية، مزامنة ميدانية وتأمين الجلسة.
+الإصدار 3.0 — إعادة بناء الهوية والتنقل إلى أربع مساحات عمل أكاديمية واضحة.
 """
 
 import base64
@@ -40,7 +40,7 @@ st.set_page_config(
     page_title="مختبر المسند الرقمي",
     page_icon="🗿",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # =====================================================================================
@@ -86,6 +86,7 @@ def goto(view_key: str) -> None:
     """تبديل العرض مع مزامنة شريط التنقل (بدون أي معاملات في الرابط)."""
     st.session_state.view = view_key
     st.session_state.pop("nav_segmented", None)
+    st.session_state.pop("nav_top", None)
     st.rerun()
 
 
@@ -567,7 +568,11 @@ if "pending_image" not in st.session_state:
 if "search_result" not in st.session_state:
     st.session_state.search_result = None
 if "view" not in st.session_state:
-    st.session_state.view = "search"
+    st.session_state.view = "eye"
+if "global_subview" not in st.session_state:
+    st.session_state.global_subview = "🌐 البحث والمدونات"
+if "global_catalog_pings" not in st.session_state:
+    st.session_state.global_catalog_pings = {}
 if "confirm_wipe" not in st.session_state:
     st.session_state.confirm_wipe = False
 
@@ -943,268 +948,66 @@ def attachment_status() -> None:
 # 9) CSS الديناميكي (يدعم الوضع العادي والمظهر الميداني الداكن)
 # =====================================================================================
 def get_css(field_dark: bool) -> str:
-    """إرجاع CSS حسب وضع المظهر."""
+    """نظام تصميم موحّد: رمل دافئ، نيلي ملكي، وبرونز أثري؛ مع وضع ميداني عالي التباين."""
     if field_dark:
-        # مظهر ميداني داكن عالي التباين
-        return """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;600;700&display=swap');
-
-:root{
-  --ink:#f8fafc; --muted:#94a3b8; --line:#334155;
-  --brand:#a78bfa; --brand2:#38bdf8; --gold:#fbbf24;
-  --card:#1e293b; --soft:#0f172a; --bg:#020617;
-}
-
-html, body, [class*="css"] { font-family: 'Noto Kufi Arabic', 'Segoe UI', Tahoma, sans-serif; }
-.stApp { background: linear-gradient(180deg,#020617 0%, #0f172a 100%); }
-
-.block-container { padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1250px; }
-
-/* ---------- الترويسة ---------- */
-.hero {
-  position: relative; overflow: hidden;
-  border-radius: 22px; padding: 26px 28px; margin-bottom: 18px;
-  background: radial-gradient(1200px 300px at 90% -20%, #7c3aed44, transparent),
-              linear-gradient(135deg,#0f172a 0%, #1e1b4b 45%, #0c4a6e 100%);
-  color:#fff; border:2px solid #7c3aed;
-  box-shadow: 0 18px 40px -24px #000000;
-}
-.hero h1 { font-size: 1.30rem; line-height:1.75; margin:0 0 6px 0; font-weight:700; color:#f1f5f9; }
-.hero p  { margin:0; color:#a5b4fc; font-size:.82rem; letter-spacing:.3px; }
-.hero .chips { margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; }
-.chip {
-  background:#ffffff1f; border:1px solid #7c3aed66; color:#e0e7ff;
-  padding:5px 12px; border-radius:999px; font-size:.72rem; backdrop-filter: blur(4px);
-}
-
-/* ---------- البطاقات ---------- */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  border-radius: 18px !important;
-  border: 1px solid #334155 !important;
-  background: #1e293b !important;
-  box-shadow: 0 10px 26px -20px #000000;
-}
-.sec-title { font-size:1rem; font-weight:700; color:#f1f5f9; margin:0 0 4px 0; }
-.sec-sub   { font-size:.75rem; color:#94a3b8; margin:0 0 10px 0; }
-.kv { font-size:.75rem; color:#cbd5e1; }
-.kv b { color:#f8fafc; }
-
-/* ---------- الشرائح والوسوم ---------- */
-.pill {
-  display:inline-block; padding:3px 10px; border-radius:999px;
-  font-size:.70rem; font-weight:600; border:1px solid;
-}
-.pill-ok   { color:#34d399; background:#064e3b; border-color:#059669; }
-.pill-warn { color:#fbbf24; background:#451a03; border-color:#d97706; }
-.pill-info { color:#60a5fa; background:#1e3a8a; border-color:#3b82f6; }
-.pill-off  { color:#94a3b8; background:#1e293b; border-color:#475569; }
-
-/* ---------- الأزرار ---------- */
-.stButton>button, .stDownloadButton>button { border-radius: 12px !important; font-weight:600; }
-.stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#373b70,#535a8d) !important;
-  border: none !important; color:#fff !important;
-  box-shadow: 0 10px 22px -14px #7c3aed;
-}
-
-/* ---------- الدردشة ---------- */
-div[data-testid="stChatMessage"] {
-  border-radius: 16px; border:1px solid #334155; background:#1e293b;
-  box-shadow: 0 8px 20px -18px #000000;
-}
-
-/* ---------- الشريط الجانبي ---------- */
-section[data-testid="stSidebar"] {
-  background: linear-gradient(180deg,#020617 0%, #0f172a 100%);
-  border-left: 1px solid #1e293b;
-}
-section[data-testid="stSidebar"] * { color:#e2e8f0 !important; }
-section[data-testid="stSidebar"] .stButton>button {
-  background:#ffffff10 !important; border:1px solid #334155 !important;
-  color:#e2e8f0 !important; text-align:right; justify-content:flex-start;
-}
-section[data-testid="stSidebar"] .stButton>button:hover { background:#ffffff22 !important; }
-section[data-testid="stSidebar"] .stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#373b70,#535a8d) !important; border:none !important;
-}
-section[data-testid="stSidebar"] input { background:#ffffff10 !important; }
-section[data-testid="stSidebar"] .brand {
-  display:flex; align-items:center; gap:10px; padding:10px 4px 14px 4px;
-  border-bottom:1px solid #334155; margin-bottom:14px;
-}
-section[data-testid="stSidebar"] .brand .mark {
-  width:38px; height:38px; border-radius:12px; display:grid; place-items:center;
-  background:linear-gradient(135deg,#a9823c,#535a8d); font-size:1.1rem;
-}
-section[data-testid="stSidebar"] .brand .t1 { font-weight:700; font-size:.86rem; }
-section[data-testid="stSidebar"] .brand .t2 { font-size:.66rem; color:#64748b !important; }
-section[data-testid="stSidebar"] .side-label {
-  font-size:.70rem; color:#64748b !important; margin:14px 2px 6px 2px; letter-spacing:.6px;
-}
-section[data-testid="stSidebar"] .privacy-box {
-  background:#ffffff0d; border:1px solid #334155; border-radius:14px;
-  padding:10px 12px; font-size:.70rem; color:#cbd5e1 !important; line-height:1.9;
-}
-
-/* ---------- اتجاه من اليمين إلى اليسار ---------- */
-.block-container, section[data-testid="stSidebar"] { direction: rtl; }
-.block-container [data-testid="stMarkdownContainer"], .block-container p,
-.block-container li, .block-container h1, .block-container h2,
-.block-container h3, .block-container h4 { text-align: right; color:#e2e8f0; }
-[data-baseweb="input"] input, [data-baseweb="textarea"] textarea {
-  text-align: right; direction: rtl; background:#0f172a !important; color:#e2e8f0 !important;
-}
-[data-testid="stChatInput"] textarea { text-align: right; direction: rtl; background:#0f172a !important; }
-[data-testid="stFileUploaderDropzone"] { direction: rtl; }
-code, pre { direction: ltr; text-align: left; unicode-bidi: embed; color:#a5b4fc; }
-
-/* ---------- عناصر إضافية ---------- */
-.stTextInput input, .stTextArea textarea { background:#0f172a !important; color:#e2e8f0 !important; }
-.stSelectbox > div > div { background:#0f172a !important; color:#e2e8f0 !important; }
-.stDataFrame { background:#0f172a !important; }
-.stDataFrame td, .stDataFrame th { color:#e2e8f0 !important; }
-
-/* ملمس أكاديمي هادئ وتباين واضح */
-.stButton>button, .stDownloadButton>button { min-height:2.55rem; transition:transform .15s ease, box-shadow .15s ease; }
-.stButton>button:hover, .stDownloadButton>button:hover { transform:translateY(-1px); box-shadow:0 7px 18px -12px #252b3a88; }
-:focus-visible { outline:3px solid #c7a25b !important; outline-offset:2px; }
-@media (max-width: 720px) { .hero { padding:20px 18px; border-radius:16px; } .hero h1 {font-size:1.05rem;} .block-container {padding-left:1rem;padding-right:1rem;} }
-
-/* ---------- إخفاء الزخارف الافتراضية ---------- */
-#MainMenu, footer, div[data-testid="stDecoration"] { visibility:hidden; }
-[data-testid="stStatusWidget"] { visibility:hidden; }
-</style>
-"""
+        bg, panel, ink, muted, line = "#111827", "#1f2937", "#f8fafc", "#cbd5e1", "#475569"
+        accent, gold, sidebar = "#a9b4e5", "#e2bd72", "#0b1220"
     else:
-        # المظهر العادي الفاتح
-        return """
+        bg, panel, ink, muted, line = "#f4efe4", "#fffdf8", "#20283b", "#667085", "#e4dac7"
+        accent, gold, sidebar = "#23365d", "#a77b38", "#1d2d4e"
+    return f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;600;700&display=swap');
-
-:root{
-  --ink:#252b3a; --muted:#647080; --line:#e6ddcc;
-  --brand:#373b70; --brand2:#777da5; --gold:#a9823c;
-  --card:#fffdf8; --soft:#f4efe5;
-}
-
-html, body, [class*="css"] { font-family: 'Noto Kufi Arabic', 'Segoe UI', Tahoma, sans-serif; }
-.stApp { background: linear-gradient(180deg,#f8f5ed 0%, #f0ece2 100%); }
-
-.block-container { padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1250px; }
-
-/* ---------- الترويسة ---------- */
-.hero {
-  position: relative; overflow: hidden;
-  border-radius: 22px; padding: 26px 28px; margin-bottom: 18px;
-  background: radial-gradient(900px 280px at 90% -20%, #c7a25b44, transparent),
-              linear-gradient(135deg,#25294f 0%, #373b70 52%, #4b527e 100%);
-  color:#fff; border:1px solid #a9823c66;
-  box-shadow: 0 18px 40px -24px #25294f80;
-}
-.hero h1 { font-size: 1.30rem; line-height:1.75; margin:0 0 6px 0; font-weight:700; }
-.hero p  { margin:0; color:#c7d2fe; font-size:.82rem; letter-spacing:.3px; }
-.hero .chips { margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; }
-.chip {
-  background:#ffffff1f; border:1px solid #ffffff33; color:#e0e7ff;
-  padding:5px 12px; border-radius:999px; font-size:.72rem; backdrop-filter: blur(4px);
-}
-
-/* ---------- البطاقات ---------- */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  border-radius: 18px !important;
-  border: 1px solid var(--line) !important;
-  background: #fffdf8 !important;
-  box-shadow: 0 10px 26px -20px #252b3a40;
-}
-.sec-title { font-size:1rem; font-weight:700; color:#252b3a; margin:0 0 4px 0; }
-.sec-sub   { font-size:.75rem; color:#64748b; margin:0 0 10px 0; }
-.kv { font-size:.75rem; color:#475569; }
-.kv b { color:#252b3a; }
-
-/* ---------- الشرائح والوسوم ---------- */
-.pill {
-  display:inline-block; padding:3px 10px; border-radius:999px;
-  font-size:.70rem; font-weight:600; border:1px solid;
-}
-.pill-ok   { color:#047857; background:#ecfdf5; border-color:#a7f3d0; }
-.pill-warn { color:#795b22; background:#f7efd9; border-color:#d9c18b; }
-.pill-info { color:#1d4ed8; background:#eff6ff; border-color:#bfdbfe; }
-.pill-off  { color:#475569; background:#f1f5f9; border-color:#e2e8f0; }
-
-/* ---------- الأزرار ---------- */
-.stButton>button, .stDownloadButton>button { border-radius: 12px !important; font-weight:600; }
-.stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#373b70,#535a8d) !important;
-  border: none !important; color:#fff !important;
-  box-shadow: 0 10px 22px -14px #373b70;
-}
-
-/* ---------- الدردشة ---------- */
-div[data-testid="stChatMessage"] {
-  border-radius: 16px; border:1px solid var(--line); background:#fff;
-  box-shadow: 0 8px 20px -18px #0f172a99;
-}
-
-/* ---------- الشريط الجانبي ---------- */
-section[data-testid="stSidebar"] {
-  background: linear-gradient(180deg,#272b50 0%, #373b70 100%);
-  border-left: 1px solid #1e293b;
-}
-section[data-testid="stSidebar"] * { color:#e2e8f0 !important; }
-section[data-testid="stSidebar"] .stButton>button {
-  background:#ffffff10 !important; border:1px solid #ffffff1f !important;
-  color:#e2e8f0 !important; text-align:right; justify-content:flex-start;
-}
-section[data-testid="stSidebar"] .stButton>button:hover { background:#ffffff22 !important; }
-section[data-testid="stSidebar"] .stButton>button[kind="primary"] {
-  background: linear-gradient(135deg,#373b70,#535a8d) !important; border:none !important;
-}
-section[data-testid="stSidebar"] input { background:#ffffff10 !important; }
-section[data-testid="stSidebar"] .brand {
-  display:flex; align-items:center; gap:10px; padding:10px 4px 14px 4px;
-  border-bottom:1px solid #ffffff1f; margin-bottom:14px;
-}
-section[data-testid="stSidebar"] .brand .mark {
-  width:38px; height:38px; border-radius:12px; display:grid; place-items:center;
-  background:linear-gradient(135deg,#a9823c,#535a8d); font-size:1.1rem;
-}
-section[data-testid="stSidebar"] .brand .t1 { font-weight:700; font-size:.86rem; }
-section[data-testid="stSidebar"] .brand .t2 { font-size:.66rem; color:#94a3b8 !important; }
-section[data-testid="stSidebar"] .side-label {
-  font-size:.70rem; color:#94a3b8 !important; margin:14px 2px 6px 2px; letter-spacing:.6px;
-}
-section[data-testid="stSidebar"] .privacy-box {
-  background:#ffffff0d; border:1px solid #ffffff1f; border-radius:14px;
-  padding:10px 12px; font-size:.70rem; color:#cbd5e1 !important; line-height:1.9;
-}
-
-/* ---------- اتجاه من اليمين إلى اليسار ---------- */
-.block-container, section[data-testid="stSidebar"] { direction: rtl; }
-.block-container [data-testid="stMarkdownContainer"], .block-container p,
-.block-container li, .block-container h1, .block-container h2,
-.block-container h3, .block-container h4 { text-align: right; }
-[data-baseweb="input"] input, [data-baseweb="textarea"] textarea { text-align: right; direction: rtl; }
-[data-testid="stChatInput"] textarea { text-align: right; direction: rtl; }
-[data-testid="stFileUploaderDropzone"] { direction: rtl; }
-code, pre { direction: ltr; text-align: left; unicode-bidi: embed; }
-
-/* تفاعلات واضحة ومتوافقة مع الشاشات الصغيرة */
-.stButton>button, .stDownloadButton>button { min-height:2.55rem; transition:transform .15s ease, box-shadow .15s ease; }
-.stButton>button:hover, .stDownloadButton>button:hover { transform:translateY(-1px); box-shadow:0 7px 18px -12px #252b3a88; }
-:focus-visible { outline:3px solid #c7a25b !important; outline-offset:2px; }
-@media (max-width: 720px) { .hero { padding:20px 18px; border-radius:16px; } .hero h1 {font-size:1.05rem;} .block-container {padding-left:1rem;padding-right:1rem;} }
-
-/* ---------- إخفاء الزخارف الافتراضية ---------- */
-#MainMenu, footer, div[data-testid="stDecoration"] { visibility:hidden; }
-[data-testid="stStatusWidget"] { visibility:hidden; }
-</style>
-"""
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;600;700&display=swap');
+:root {{ --sand:{bg}; --panel:{panel}; --ink:{ink}; --muted:{muted}; --line:{line}; --navy:#1d2d4e; --gold:{gold}; --accent:{accent}; }}
+html, body, [class*="css"] {{ font-family:'Noto Sans Arabic','Segoe UI',Tahoma,sans-serif; }}
+.stApp {{ background:radial-gradient(ellipse at 90% 0%, {gold}12, transparent 34%), {bg}; color:{ink}; }}
+.block-container {{ max-width:1320px; padding:1.4rem 2rem 3rem; direction:rtl; }}
+[data-testid="stMarkdownContainer"], p, h1, h2, h3, h4, li {{ text-align:right; }}
+.hero {{ background:linear-gradient(125deg,#1d2d4e 0%,#2d426c 64%,#4b526b 100%); color:#fff; border:1px solid #bd9a5b66; border-radius:22px; padding:25px 30px; margin-bottom:15px; box-shadow:0 16px 38px -25px #17233fcc; position:relative; overflow:hidden; }}
+.hero:after {{ content:'𐩣'; position:absolute; left:24px; top:-30px; font-size:8rem; color:#ffffff0c; font-family:'Noto Naskh Arabic',serif; }}
+.hero h1 {{ margin:0 0 3px; color:white; font-size:1.38rem; line-height:1.7; }}
+.hero p {{ margin:0; color:#e6dfd1; font-size:.83rem; }}
+.hero .chips {{ display:flex; gap:7px; flex-wrap:wrap; margin-top:13px; }}
+.chip {{ border:1px solid #ffffff3a; background:#ffffff12; border-radius:999px; color:#fff; padding:4px 11px; font-size:.7rem; }}
+[data-testid="stVerticalBlockBorderWrapper"] {{ background:{panel} !important; border:1px solid {line} !important; border-radius:17px !important; box-shadow:0 8px 24px -21px #101828aa; }}
+.sec-title {{ color:{accent}; font-weight:700; font-size:1.02rem; margin:.1rem 0 .25rem; }}
+.sec-sub {{ color:{muted}; font-size:.81rem; line-height:1.8; margin:0 0 .75rem; }}
+.kv {{ color:{muted}; font-size:.8rem; line-height:1.8; }}
+.stButton>button, .stDownloadButton>button {{ border-radius:11px !important; min-height:2.55rem; font-weight:650 !important; border:1px solid {line} !important; transition:all .16s ease; }}
+.stButton>button[kind="primary"], .stDownloadButton>button[kind="primary"] {{ background:#1d2d4e !important; color:white !important; border:1px solid #1d2d4e !important; box-shadow:0 8px 18px -12px #152440; }}
+.stButton>button[kind="primary"]:hover {{ background:#2c426a !important; transform:translateY(-1px); }}
+.stButton>button:hover, .stDownloadButton>button:hover {{ border-color:{gold} !important; transform:translateY(-1px); }}
+[data-testid="stSegmentedControl"] {{ background:{panel}; border:1px solid {line}; border-radius:15px; padding:5px; box-shadow:0 6px 20px -18px #101828; }}
+[data-testid="stSegmentedControl"] button {{ border-radius:11px !important; color:{ink} !important; min-height:2.8rem; font-weight:650 !important; }}
+[data-testid="stSegmentedControl"] button[aria-pressed="true"] {{ background:#1d2d4e !important; color:#fff !important; }}
+[data-baseweb="input"] input, [data-baseweb="textarea"] textarea, [data-baseweb="select"] {{ direction:rtl; text-align:right; border-radius:10px !important; }}
+[data-testid="stChatInput"] textarea {{ direction:rtl; text-align:right; }}
+[data-testid="stChatMessage"] {{ border:1px solid {line}; border-radius:14px; background:{panel}; }}
+[data-testid="stMetric"] {{ background:{panel}; border:1px solid {line}; border-radius:14px; padding:13px 15px; }}
+[data-testid="stMetricLabel"] {{ color:{muted} !important; }}
+[data-testid="stMetricValue"] {{ color:{accent} !important; }}
+[data-testid="stSidebar"] {{ background:{sidebar}; border-left:1px solid #ffffff14; }}
+[data-testid="stSidebar"] * {{ color:#f4f2ed; }}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{ color:#f4f2ed; }}
+[data-testid="stSidebar"] .stButton>button {{ background:#ffffff0d; color:#f4f2ed !important; border:1px solid #ffffff20 !important; text-align:right; }}
+[data-testid="stSidebar"] .stButton>button[kind="primary"] {{ background:#b18a4b !important; color:#fff !important; border:0 !important; }}
+.brand {{ display:flex; gap:10px; align-items:center; padding:8px 3px 16px; border-bottom:1px solid #ffffff22; margin-bottom:15px; }}
+.brand .mark {{ display:grid; place-items:center; width:40px; height:40px; border-radius:13px; background:linear-gradient(140deg,#b18a4b,#6d603e); font-size:1.2rem; }}
+.brand .t1 {{ font-weight:700; font-size:.84rem; }} .brand .t2 {{ color:#c7c8d0; font-size:.63rem; }}
+.side-label {{ color:#c5b58f; font-size:.7rem; margin:14px 2px 6px; }}
+.privacy-box {{ background:#ffffff0c; border:1px solid #ffffff20; border-radius:12px; padding:10px; font-size:.7rem; line-height:1.85; }}
+.pill {{ display:inline-block; border-radius:99px; padding:3px 10px; border:1px solid {line}; background:{panel}; color:{ink}; font-size:.7rem; font-weight:650; }}
+.pill-ok {{ color:#176b4c; background:#e7f3ec; border-color:#b8d8c3; }} .pill-warn {{ color:#805f22; background:#f5ecd8; border-color:#dfc68f; }} .pill-info {{ color:#304c79; background:#e9eef8; border-color:#c2cde0; }} .pill-off {{ color:{muted}; }}
+[data-testid="stFileUploaderDropzone"] {{ direction:rtl; border:1px dashed {line}; border-radius:14px; background:{panel}; }}
+code, pre {{ direction:ltr; text-align:left; }}
+:focus-visible {{ outline:3px solid {gold} !important; outline-offset:2px; }}
+#MainMenu, footer, [data-testid="stDecoration"] {{ visibility:hidden; }}
+@media(max-width:800px) {{ .block-container {{ padding:1rem 1rem 2rem; }} .hero {{ padding:19px; }} .hero h1 {{ font-size:1.05rem; }} }}
+</style>"""
 
 
 # تطبيق CSS حسب الوضع الحالي
 st.markdown(get_css(st.session_state.field_dark_mode), unsafe_allow_html=True)
-
 
 # =====================================================================================
 # 10) نافذة تأمين الجلسة (Dialog)
@@ -1387,7 +1190,7 @@ with st.sidebar:
               <div class="mark">🗿</div>
               <div>
                 <div class="t1">مختبر المسند الرقمي</div>
-                <div class="t2">South Arabian Epigraphy Lab · v2.2</div>
+                <div class="t2">South Arabian Epigraphy Lab · v3.0</div>
               </div>
             </div>""",
         unsafe_allow_html=True,
@@ -1410,9 +1213,13 @@ with st.sidebar:
     pending_count = len(load_offline_queue(OWNER, "pending"))
     offline_label = f"⏳ قائمة الانتظار الميدانية ({pending_count})" if pending_count > 0 else "⏳ قائمة الانتظار الميدانية"
     if st.button(offline_label, width="stretch", key="sb_offline_queue"):
-        goto("offline")
+        st.session_state.global_subview = "⏳ التخزين الميداني"
+        goto("global")
+    if st.button("📚 عرض الأرشيف الكامل", width="stretch", key="sb_open_archive"):
+        st.session_state.global_subview = "📚 الأرشيف"
+        goto("global")
 
-    st.markdown("<div class='side-label'>🕒 أرشيفي (خاص بي)</div>", unsafe_allow_html=True)
+    st.markdown("<div class='side-label'>🕒 محادثاتي الأخيرة</div>", unsafe_allow_html=True)
     chat_query = st.text_input("بحث في المحادثات", placeholder="🔎 فلترة العناوين…",
                                label_visibility="collapsed", key="sb_chat_filter").strip()
 
@@ -1489,78 +1296,168 @@ with st.sidebar:
 
 
 # =====================================================================================
-# 13) الترويسة + التنقل
+# 13) الترويسة والتنقل الرئيسي — أربع مساحات عمل منفصلة
 # =====================================================================================
-head_left, head_mid, head_right = st.columns([2.8, 1.2, 1], vertical_alignment="center")
-with head_left:
+legacy_views = {"search": "global", "archive": "global", "offline": "global"}
+if st.session_state.view in legacy_views:
+    old_view = st.session_state.view
+    st.session_state.view = legacy_views[old_view]
+    if old_view == "offline":
+        st.session_state.global_subview = "⏳ التخزين الميداني"
+    elif old_view == "archive":
+        st.session_state.global_subview = "📚 الأرشيف"
+
+header_title, header_controls = st.columns([4.4, 1.35], vertical_alignment="center")
+with header_title:
     st.markdown(
         f"""<div class="hero">
-              <h1>{APP_TITLE}</h1>
-              <p>{APP_SUBTITLE}</p>
-              <div class="chips">
-                <span class="chip">🔎 بحث بدون مفتاح</span>
-                <span class="chip">✨ Gemini المجاني</span>
-                <span class="chip">🔒 جلسة خاصة</span>
-                <span class="chip">📜 DASI / CSAI</span>
-                <span class="chip">🌙 وضع ميداني</span>
-              </div>
-            </div>""",
+          <h1>مختبر المسند الرقمي</h1>
+          <p>{APP_SUBTITLE}</p>
+          <div class="chips">
+            <span class="chip">𐩣 دراسات جنوب الجزيرة</span>
+            <span class="chip">🗂️ فهرسة موثقة</span>
+            <span class="chip">🧪 محاكاة آمنة عند غياب المفتاح</span>
+          </div>
+        </div>""",
         unsafe_allow_html=True,
     )
-with head_mid:
-    # زر تبديل المظهر الميداني
+with header_controls:
     dark_mode = st.session_state.field_dark_mode
-    mode_label = "☀️ وضع عادي" if dark_mode else "🌙 وضع ميداني"
-    if st.button(mode_label, width="stretch", key="toggle_dark_mode",
-                 help="تبديل المظهر الميداني الداكن عالي التباين للعمل تحت أشعة الشمس"):
+    mode_label = "☀️ المظهر العادي" if dark_mode else "🌙 الوضع الداكن الميداني"
+    if st.button(mode_label, width="stretch", key="toggle_dark_mode"):
         st.session_state.field_dark_mode = not dark_mode
         st.rerun()
-
-    # زر تأمين سريع في الترويسة
-    if st.session_state.session_locked:
-        if st.button("🔓 جلسة مقفلة", width="stretch", key="head_unlock"):
-            unlock_session_dialog()
-    else:
-        if st.button("🔓 جلسة مفتوحة", width="stretch", key="head_lock"):
-            lock_session_dialog()
-
-with head_right:
-    upload_icon_button("head_upload_btn", "رفع النقش")
-    key_state = "✅ مفتاح Gemini جاهز" if st.session_state.gemini_free_key else "🔑 لا مفتاح Gemini"
-    prov_key_state = "مفتاح مزود رئيسي مضبوط" if any(st.session_state.secret_keys.values()) else "بلا مفتاح مزود"
-    lock_state = "🔒 مقفلة" if st.session_state.session_locked else "🔓 مفتوحة"
-    st.markdown(
-        f"<div style='text-align:center;margin-top:6px'>"
-        f"<span class='pill {'pill-ok' if st.session_state.gemini_free_key else 'pill-warn'}'>"
-        f"{key_state}</span><br><br>"
-        f"<span class='pill pill-info'>{prov_key_state}</span><br><br>"
-        f"<span class='pill {'pill-warn' if st.session_state.session_locked else 'pill-ok'}'>{lock_state}</span></div>",
-        unsafe_allow_html=True,
-    )
+    lock_label = "🔒 الجلسة مؤمّنة" if st.session_state.session_locked else "🔓 تأمين المفاتيح"
+    if st.button(lock_label, width="stretch", key="head_lock"):
+        unlock_session_dialog() if st.session_state.session_locked else lock_session_dialog()
+    has_active_key = bool(st.session_state.gemini_free_key or any(st.session_state.secret_keys.values()))
+    st.caption("🧪 محاكاة بلا اتصال خارجي" if st.session_state.mock_mode else ("🔑 مفتاح في الجلسة" if has_active_key else "⚠️ لا يوجد مفتاح"))
 
 VIEWS = {
-    "🔎 البحث عن النقش": "search",
-    "💬 المساعد الإبيغرافي": "chat",
-    "📚 الأرشيف": "archive",
-    "⏳ قائمة الانتظار": "offline",
-    "⚙️ الإعدادات": "settings",
+    "🗿 عين المسند": "eye",
+    "📜 المساعد الإبيغرافي": "chat",
+    "🌐 البوابة العالمية": "global",
+    "⚙️ الإعدادات المتقدمة": "settings",
 }
 VIEW_KEYS = list(VIEWS.values())
 VIEW_LABELS = list(VIEWS.keys())
 if st.session_state.view not in VIEW_KEYS:
-    st.session_state.view = "search"
+    st.session_state.view = "eye"
 current_label = VIEW_LABELS[VIEW_KEYS.index(st.session_state.view)]
-if "nav_segmented" not in st.session_state:
-    st.session_state.nav_segmented = current_label
+if st.session_state.get("nav_top") not in VIEW_LABELS:
+    st.session_state.nav_top = current_label
 choice = st.segmented_control(
-    "التنقل", VIEW_LABELS, label_visibility="collapsed",
-    key="nav_segmented", width="stretch",
+    "مساحات العمل الرئيسية", VIEW_LABELS,
+    label_visibility="collapsed", key="nav_top", width="stretch",
 )
 if choice and VIEWS[choice] != st.session_state.view:
     goto(VIEWS[choice])
 VIEW = st.session_state.view
-
 st.write("")
+
+
+# =====================================================================================
+# 13.1) عين المسند — التقاط، رفع، ومعاينة الصورة
+# =====================================================================================
+def render_eye_view() -> None:
+    st.markdown("<div class='sec-title'>🗿 عين المسند</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sec-sub'>مساحة ميدانية هادئة لتوثيق النقش قبل قراءته. التقط صورة أو ارفعها، ثم انتقل مباشرة إلى التحليل المقارن.</div>",
+        unsafe_allow_html=True,
+    )
+    capture_col, preview_col = st.columns([1, 1.45], gap="large")
+    with capture_col:
+        with st.container(border=True):
+            st.markdown("### 📷 التقاط أو رفع")
+            st.caption("استخدم صورة واضحة، مستقيمة قدر الإمكان، مع إضاءة جانبية لطيفة لإبراز الحفر.")
+            upload = st.file_uploader("رفع صورة من الجهاز", type=["png", "jpg", "jpeg", "webp"], key="eye_file_upload")
+            camera = st.camera_input("التقاط صورة ميدانية", key="eye_camera_capture")
+            source = camera or upload
+            if source is not None:
+                raw = source.getvalue()
+                name = getattr(source, "name", None) or "camera.jpg"
+                mime = getattr(source, "type", None) or "image/jpeg"
+                current = st.session_state.pending_image
+                if not current or current.get("name") != name or current.get("size") != len(raw):
+                    set_pending_image(raw, name, mime)
+            if st.session_state.pending_image:
+                if st.button("إزالة الصورة المثبتة", key="eye_remove_image"):
+                    st.session_state.pending_image = None
+                    st.rerun()
+    with preview_col:
+        with st.container(border=True):
+            st.markdown("### 🔎 معاينة ميدانية")
+            image = st.session_state.pending_image
+            if image:
+                st.image(image["bytes"], caption=f"{image['name']} · {bytes_to_kb(image['size'])}", width="stretch")
+                st.success("الصورة جاهزة للمراجعة أو التحليل؛ لن تُرسل إلى مزود خارجي إلا عند طلب ذلك.")
+            else:
+                st.markdown(
+                    "<div style='min-height:245px;display:grid;place-items:center;text-align:center;border:1px dashed var(--line);border-radius:16px;padding:24px'>"
+                    "<div><div style='font-size:3.5rem;color:var(--gold)'>𐩣</div>"
+                    "<strong>مساحة معاينة النقش</strong><br><span style='color:var(--muted)'>ستظهر الصورة هنا بعد التقاطها أو رفعها</span></div></div>",
+                    unsafe_allow_html=True,
+                )
+                st.caption("دليل سريع: صورة كاملة ← تفاصيل مقربة ← قراءة حرفية ← ترجمة ومراجعة مرجعية.")
+            st.write("")
+            if st.button("📜 فتح المساعد والتحليل الفوري", type="primary", width="stretch", key="eye_go_assistant"):
+                goto("chat")
+    st.write("")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("خطوة التوثيق", "01 · الصورة", "جاهزة للمراجعة")
+    m2.metric("التحليل", "02 · قراءة", "عند الطلب")
+    m3.metric("المخرجات", "03 · مقارنة", "نص وصورة")
+    if st.session_state.mock_mode:
+        st.info("🧪 وضع المحاكاة مفعّل لعدم وجود مفتاح API. يمكنك استكشاف الواجهة وطلب استجابة تعليمية تجريبية دون إرسال ملفاتك للخارج.")
+
+
+def render_global_portal_intro() -> None:
+    st.markdown("<div class='sec-title'>🌐 البوابة العالمية للنقوش والمدونات</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sec-sub'>مداخل مرجعية خارجية للبحث في النقوش والكتالوجات الأكاديمية؛ حالة الاتصال تُفحص عند الطلب فقط.</div>", unsafe_allow_html=True)
+    catalog_data = [
+        ("DASI", "Digital Archive for the Study of pre-Islamic Arabian Inscriptions", "https://dasi.cnr.it/", "مدونة رقمية للنقوش العربية القديمة"),
+        ("CSAI", "Corpus of South Arabian Inscriptions", "https://csai.humnet.unipi.it/", "فهرس ودراسات نقوش جنوب الجزيرة"),
+        ("Google Scholar", "Academic literature search", "https://scholar.google.com/", "مقالات ودراسات علمية"),
+    ]
+    cols = st.columns(3, gap="medium")
+    for col, (name, subtitle, url, description) in zip(cols, catalog_data):
+        with col:
+            ping = st.session_state.global_catalog_pings.get(name)
+            light = "🟢" if ping is True else ("🔴" if ping is False else "🟡")
+            with st.container(border=True):
+                st.markdown(f"### {light} {name}")
+                st.caption(subtitle)
+                st.markdown(description)
+                st.markdown(f"[فتح المصدر ↗]({url})")
+                state = "متاح عند آخر فحص" if ping is True else ("تعذّر الوصول في آخر فحص" if ping is False else "لم يُفحص بعد")
+                st.caption(state)
+    opts = st.columns([1, 2.7], vertical_alignment="center")
+    with opts[0]:
+        st.selectbox("لغة الاستعلام", ["العربية", "English", "Français", "Italiano"], key="global_search_language")
+    with opts[1]:
+        if st.button("📡 فحص اتصال المصادر", key="catalog_ping", help="فحص HTTP سريع من خادم التطبيق؛ لا تُرسل بيانات البحث"):
+            for name, _, url, _ in catalog_data:
+                try:
+                    response = requests.get(url, timeout=4, allow_redirects=True)
+                    st.session_state.global_catalog_pings[name] = response.status_code < 500
+                except requests.RequestException:
+                    st.session_state.global_catalog_pings[name] = False
+            st.rerun()
+
+
+def render_global_view() -> None:
+    subviews = ["🌐 البحث والمدونات", "⏳ التخزين الميداني", "📚 الأرشيف"]
+    if st.session_state.get("global_subview") not in subviews:
+        st.session_state.global_subview = subviews[0]
+    selected = st.segmented_control("أدوات البوابة", subviews, key="global_subview", width="stretch")
+    if selected == subviews[1]:
+        render_offline_view()
+    elif selected == subviews[2]:
+        render_archive_view()
+    else:
+        render_global_portal_intro()
+        st.divider()
+        render_search_view()
 
 
 # =====================================================================================
@@ -1672,6 +1569,7 @@ def render_search_view() -> None:
                         f"{SYSTEM_PROMPT_LOOKUP}\n\n"
                         f"---\n**الاستعلام:** {query or '[صورة نقش مرفقة]'}\n"
                         f"**فلتر المدونة:** {corpus_filter} — **فلتر الموقع:** {region_filter or 'غير محدد'}\n"
+                        f"**لغة الإجابة المطلوبة:** {st.session_state.get('global_search_language', 'العربية')}\n"
                     )
                     try:
                         with st.spinner("جارٍ الاستدلال عبر Gemini المجاني…"):
@@ -2209,7 +2107,7 @@ def render_archive_view() -> None:
 # 18) الإعدادات
 # =====================================================================================
 def render_settings_view() -> None:
-    st.markdown("<div class='sec-title'>⚙️ لوحة التحكم المركزية</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sec-title'>⚙️ الإعدادات المتقدمة</div>", unsafe_allow_html=True)
     st.markdown("<div class='sec-sub'>إدارة المزودين والنماذج وإعدادات الشبكة — كل شيء معزول لهذا المستخدم.</div>",
                 unsafe_allow_html=True)
 
@@ -2297,7 +2195,7 @@ def render_settings_view() -> None:
                 st.success("تم الحفظ (المفتاح في الجلسة فقط).")
                 st.rerun()
         with b2:
-            if st.button("🧪 اختبار الاتصال", width="stretch", key=f"st_test_{sel}"):
+            if st.button("💡 Auto-Ping · فحص سريع", width="stretch", key=f"st_test_{sel}"):
                 if st.session_state.session_locked:
                     st.warning("افتح الجلسة أولاً.")
                 else:
@@ -2443,7 +2341,7 @@ def render_settings_view() -> None:
         st.divider()
         st.markdown("#### ℹ️ عن المنصة")
         st.markdown(
-            "الإصدار **2.2** — هوية أكاديمية محسّنة، نافذة رفع نقش مستقلة، عزل لكل جلسة، "
+            "الإصدار **3.0** — إعادة بناء أكاديمية كاملة، أربع مساحات عمل منفصلة، نافذة رفع نقش مستقلة، عزل لكل جلسة، "
             "بحث عن النقش يعمل بمفتاح **Gemini المجاني** أو محلياً **بدون أي مفتاح**، "
             "مع ميزات ميدانية: وضع داكن عالي التباين، مقارنة حية، تخزين مؤقت، معالج إعداد ذاتي، وتأمين مفاتيح."
         )
@@ -2452,20 +2350,18 @@ def render_settings_view() -> None:
 # =====================================================================================
 # 19) التوجيه
 # =====================================================================================
-if VIEW == "search":
-    render_search_view()
+if VIEW == "eye":
+    render_eye_view()
 elif VIEW == "chat":
     render_chat_view()
-elif VIEW == "archive":
-    render_archive_view()
-elif VIEW == "offline":
-    render_offline_view()
+elif VIEW == "global":
+    render_global_view()
 else:
     render_settings_view()
 
 st.markdown(
     "<div style='text-align:center;color:#94a3b8;font-size:.7rem;padding-top:26px'>"
-    "مختبر المسند الرقمي · جلسة خاصة معزولة · لا تُشارَك المفاتيح ولا السجلات مع أي مستخدم آخر · v2.2"
+    "مختبر المسند الرقمي · جلسة خاصة معزولة · لا تُشارَك المفاتيح ولا السجلات مع أي مستخدم آخر · v3.0"
     "</div>",
     unsafe_allow_html=True,
 )
