@@ -1,0 +1,10 @@
+# Local Python environment and runtime cache
+.venv/
+__pycache__/
+*.py[cod]
+
+# Per-session application data (never commit user content)
+*.db
+*.db-shm
+*.db-wal
+.streamlit/secrets.toml
