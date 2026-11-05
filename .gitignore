@@ -1,7 +1,11 @@
 # Local Python environment and runtime cache
 .venv/
+.venv_test/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Per-session application data (never commit user content)
 *.db

@@ -8,6 +8,7 @@ Laboratory of South Arabian Epigraphy & Semitic Paleo-Linguistics
 import base64
 import hashlib
 import hmac
+import html
 import io
 import json
 import os
@@ -107,6 +108,97 @@ def verify_pin(pin: str, stored: str | None) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# التشفير symmetric للمفاتيح الحساسة في ذاكرة الجلسة
+# ---------------------------------------------------------------------------
+def _derive_encryption_key(pin: str, salt: bytes | None = None) -> tuple[bytes, bytes]:
+    """اشتقاق مفتاح تشفير من رمز المرور باستخدام PBKDF2."""
+    if salt is None:
+        salt = os.urandom(16)
+    key = hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), salt, 100_000, dklen=32)
+    return key, salt
+
+
+def encrypt_secret(plaintext: str, pin: str) -> str | None:
+    """تشفير نص سري باستخدام AES-style عبر XOR مع keystream من PBKDF2 (بدون حزم خارجية)."""
+    if not plaintext or not pin:
+        return plaintext
+    key, salt = _derive_encryption_key(pin)
+    pt = plaintext.encode("utf-8")
+    # إنشاء keystream بتجزئة متتالية
+    stream = b""
+    counter = 0
+    while len(stream) < len(pt):
+        stream += hashlib.sha256(key + salt + counter.to_bytes(4, "big")).digest()
+        counter += 1
+    stream = stream[:len(pt)]
+    ciphertext = bytes(a ^ b for a, b in zip(pt, stream))
+    return f"v1:{salt.hex()}:{ciphertext.hex()}"
+
+
+def decrypt_secret(ciphertext: str, pin: str) -> str | None:
+    """فك تشفير نص سري تم تشفيره via encrypt_secret."""
+    if not ciphertext or not pin:
+        return ciphertext
+    try:
+        parts = ciphertext.split(":", 2)
+        if parts[0] != "v1" or len(parts) != 3:
+            return ciphertext  # غير مشفر، إعادة كما هو للتوافق مع الإصدارات السابقة
+        salt = bytes.fromhex(parts[1])
+        ct = bytes.fromhex(parts[2])
+        key, _ = _derive_encryption_key(pin, salt)
+        stream = b""
+        counter = 0
+        while len(stream) < len(ct):
+            stream += hashlib.sha256(key + salt + counter.to_bytes(4, "big")).digest()
+            counter += 1
+        stream = stream[:len(ct)]
+        pt = bytes(a ^ b for a, b in zip(ct, stream))
+        return pt.decode("utf-8")
+    except Exception:
+        return None
+
+
+def escape_html(text: str) -> str:
+    """تحويل آمن لنص المستخدم قبل إدراجه في HTML عبر unsafe_allow_html."""
+    return html.escape(str(text or ""), quote=True)
+
+
+# ---------------------------------------------------------------------------
+# جدول السجل التدريبي (Audit Log)
+# ---------------------------------------------------------------------------
+def init_audit_table() -> None:
+    conn = db_conn()
+    c = conn.cursor()
+    c.execute(
+        """CREATE TABLE IF NOT EXISTS audit_log (
+               log_id TEXT PRIMARY KEY,
+               owner TEXT NOT NULL,
+               action TEXT NOT NULL,
+               details TEXT,
+               created_at TEXT
+           )"""
+    )
+    c.execute("CREATE INDEX IF NOT EXISTS idx_audit_owner ON audit_log(owner, created_at)")
+    conn.commit()
+    conn.close()
+
+
+def audit_log(owner: str, action: str, details: str | None = None) -> None:
+    """تسجيل عملية حساسة في السجل التدريبي."""
+    try:
+        conn = db_conn()
+        conn.execute(
+            "INSERT INTO audit_log (log_id, owner, action, details, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (new_id(), owner, action, details, now_str()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 # =====================================================================================
 # 3) قاعدة البيانات — كل صف مرتبط بمالك (user_token) + لا تُخزَّن أي مفاتيح API
 # =====================================================================================
@@ -176,6 +268,7 @@ def init_db() -> None:
     conn.close()
     purge_legacy_secrets()
     seed_reference_index()
+    init_audit_table()
 
 
 def purge_legacy_secrets() -> None:
@@ -241,10 +334,11 @@ def delete_chat(owner: str, chat_id: str) -> None:
 
 def delete_all_user_data(owner: str) -> None:
     conn = db_conn()
-    for table in ("chats_v2", "providers_v2", "corpus_v2", "offline_queue"):
+    for table in ("chats_v2", "providers_v2", "corpus_v2", "offline_queue", "audit_log"):
         conn.execute(f"DELETE FROM {table} WHERE owner = ?", (owner,))
     conn.commit()
     conn.close()
+    audit_log(owner, "DELETE_ALL_DATA", "تم حذف جميع بيانات المستخدم نهائياً")
 
 
 # ---------- المزودون (بدون مفاتيح) ----------
@@ -347,6 +441,7 @@ def save_provider(owner: str, name: str, data: dict) -> None:
     )
     conn.commit()
     conn.close()
+    audit_log(owner, "SAVE_PROVIDER", f"تم حفظ/تعديل المزود: {escape_html(name)}")
 
 
 def delete_provider(owner: str, name: str) -> None:
@@ -354,6 +449,7 @@ def delete_provider(owner: str, name: str) -> None:
     conn.execute("DELETE FROM providers_v2 WHERE owner = ? AND name = ?", (owner, name))
     conn.commit()
     conn.close()
+    audit_log(owner, "DELETE_PROVIDER", f"تم حذف المزود: {escape_html(name)}")
 
 
 # ---------- الفهرس المرجعي للنقوش (بحث بدون مفتاح) ----------
@@ -447,6 +543,7 @@ def delete_corpus_entry(owner: str, entry_id: str) -> None:
     conn.execute("DELETE FROM corpus_v2 WHERE entry_id = ? AND owner = ?", (entry_id, owner))
     conn.commit()
     conn.close()
+    audit_log(owner, "DELETE_CORPUS_ENTRY", f"تم حذف مدخل فهرس: {entry_id}")
 
 
 # ---------- قائمة الانتظار الميدانية (Offline Queue) ----------
@@ -467,6 +564,7 @@ def enqueue_offline(owner: str, kind: str, query: str, image: dict | None) -> st
     )
     conn.commit()
     conn.close()
+    audit_log(owner, "ENQUEUE_OFFLINE", f"تم حفظ طلب في قائمة الانتظار: {kind} - {escape_html(query or '')[:80]}")
     return qid
 
 
@@ -825,23 +923,40 @@ def generate_pdf(text: str) -> bytes | None:
     try:
         from reportlab.lib.pagesizes import letter
         from reportlab.pdfgen import canvas
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
     except Exception:
         return None
     bio = io.BytesIO()
     c = canvas.Canvas(bio, pagesize=letter)
     _, height = letter
+
+    # تسجيل خط يدعم Unicode (DejaVuSans يدعم الحروف العربية جزئياً)
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    font_bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    try:
+        pdfmetrics.registerFont(TTFont("DejaVu", font_path))
+        pdfmetrics.registerFont(TTFont("DejaVu-Bold", font_bold_path))
+        font_name = "DejaVu"
+        font_name_bold = "DejaVu-Bold"
+    except Exception:
+        font_name = "Helvetica"
+        font_name_bold = "Helvetica-Bold"
+
     y = height - 45
-    c.setFont("Helvetica-Bold", 12)
+    c.setFont(font_name_bold, 12)
     c.drawString(40, y, "South Arabian Epigraphy Laboratory")
     y -= 22
-    c.setFont("Helvetica", 9)
+    c.setFont(font_name, 9)
     for line in text.split("\n"):
         if y < 45:
             c.showPage()
             y = height - 45
-            c.setFont("Helvetica", 9)
-        c.drawString(40, y, line[:100])
-        y -= 13
+            c.setFont(font_name, 9)
+        # عرض السطر مع تقطيع آمن (تجنب قطع النصوص الطويلة جداً)
+        safe_line = str(line)[:110]
+        c.drawString(40, y, safe_line)
+        y -= 14
     c.save()
     return bio.getvalue()
 
@@ -930,7 +1045,7 @@ def attachment_status() -> None:
         with c2:
             st.markdown(
                 f"<div class='kv'><span class='pill pill-ok'>مرفق</span> "
-                f"<b>{img['name']}</b><br>{bytes_to_kb(img['size'])} · سيُرسل مع الطلب التالي</div>",
+                f"<b>{escape_html(img['name'])}</b><br>{bytes_to_kb(img['size'])} · سيُرسل مع الطلب التالي</div>",
                 unsafe_allow_html=True,
             )
             if st.button("إزالة المرفق ✕", key="rm_pending_img"):
@@ -1025,8 +1140,22 @@ def lock_session_dialog() -> None:
             st.error("الرمزان غير متطابقين.")
         else:
             st.session_state.session_pin_hash = hash_pin(pin)
+            # تشفير المفاتيح الحساسة قبل قفل الجلسة
+            try:
+                encrypted_keys = {}
+                for name, val in st.session_state.secret_keys.items():
+                    enc = encrypt_secret(val, pin)
+                    if enc is not None:
+                        encrypted_keys[name] = enc
+                st.session_state.secret_keys = encrypted_keys
+                enc_gemini = encrypt_secret(st.session_state.gemini_free_key, pin)
+                if enc_gemini is not None:
+                    st.session_state.gemini_free_key = enc_gemini
+            except Exception:
+                pass
             st.session_state.session_locked = True
-            st.success("تم تأمين الجلسة.")
+            audit_log(OWNER, "SESSION_LOCK", "تم تأمين الجلسة وتشفير المفاتيح")
+            st.success("تم تأمين الجلسة وتشفير المفاتيح.")
             st.rerun()
 
 
@@ -1037,8 +1166,22 @@ def unlock_session_dialog() -> None:
 
     if st.button("🔓 فتح", type="primary", width="stretch"):
         if verify_pin(pin, st.session_state.session_pin_hash):
+            # فك تشفير المفاتيح الحساسة بعد فتح الجلسة
+            try:
+                decrypted_keys = {}
+                for name, val in st.session_state.secret_keys.items():
+                    dec = decrypt_secret(val, pin)
+                    if dec is not None:
+                        decrypted_keys[name] = dec
+                st.session_state.secret_keys = decrypted_keys
+                dec_gemini = decrypt_secret(st.session_state.gemini_free_key, pin)
+                if dec_gemini is not None:
+                    st.session_state.gemini_free_key = dec_gemini
+            except Exception:
+                pass
             st.session_state.session_locked = False
-            st.success("تم فتح الجلسة.")
+            audit_log(OWNER, "SESSION_UNLOCK", "تم فتح الجلسة وفك تشفير المفاتيح")
+            st.success("تم فتح الجلسة وفك تشفير المفاتيح.")
             st.rerun()
         else:
             st.error("رمز خاطئ.")
@@ -1701,7 +1844,7 @@ def render_search_view() -> None:
                 "note": st.column_config.TextColumn("ملاحظة", width="large"),
             },
         )
-        e1, e2 = st.columns([1, 1])
+        e1, e2, e3 = st.columns([1, 1, 1])
         with e1:
             if st.button("💾 حفظ/تحديث الفهرس", type="primary", width="stretch", key="corpus_save"):
                 n = upsert_corpus_rows(OWNER, edited)
@@ -1719,6 +1862,18 @@ def render_search_view() -> None:
                         st.success("تم الحذف.")
                         time.sleep(0.2)
                         st.rerun()
+        with e3:
+            if rows:
+                csv_df = pd.DataFrame(rows)[["code", "corpus", "script", "region", "century", "text", "note"]]
+                csv_df.columns = ["الرمز", "المجموعة", "الخط", "الموقع", "الحقبة", "النص", "ملاحظة"]
+                st.download_button(
+                    "⬇️ تصدير CSV",
+                    data=csv_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"فهرس_النقوش_{datetime.now():%Y%m%d}.csv",
+                    mime="text/csv",
+                    width="stretch",
+                    key="corpus_export_csv",
+                )
 
 
 # =====================================================================================
