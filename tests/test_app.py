@@ -381,3 +381,11 @@ def test_queued_analysis_uses_analysis_prompt(functions):
     functions["gemini_generate"] = generate
     assert functions["process_offline_queue"]("alice", "key") == 1
     assert captured[0].startswith("analysis prompt")
+
+
+def test_pin_cannot_be_removed_while_session_is_locked(app):
+    app.session_state["session_pin_hash"] = "present"
+    app.session_state["session_locked"] = True
+    app.get("segmented_control")[0].set_value("⚙️ الإعدادات المتقدمة").run()
+    assert not app.exception
+    assert all(button.key != "remove_pin" for button in app.button)
