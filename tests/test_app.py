@@ -389,3 +389,29 @@ def test_pin_cannot_be_removed_while_session_is_locked(app):
     app.get("segmented_control")[0].set_value("⚙️ الإعدادات المتقدمة").run()
     assert not app.exception
     assert all(button.key != "remove_pin" for button in app.button)
+
+
+# https://docs.streamlit.io/develop/concepts/app-testing/get-started
+def test_field_camera_removed_but_upload_and_dialog_remain(app):
+    assert not app.get("camera_input")
+    assert len(app.get("file_uploader")) == 1
+
+    app.button(key="sb_upload_btn").click().run()
+    assert not app.exception
+    assert len(app.get("camera_input")) == 1
+
+
+# https://docs.streamlit.io/develop/concepts/app-testing/get-started
+def test_field_image_upload_still_works(app):
+    from PIL import Image
+
+    uploader = app.get("file_uploader")[0]
+    if not hasattr(uploader, "upload"):
+        pytest.skip("FileUploader testing is unavailable in this Streamlit version")
+    content = io.BytesIO()
+    Image.new("RGB", (3, 3), "white").save(content, format="PNG")
+    uploader.upload("inscription.png", content.getvalue(), "image/png").run()
+
+    assert not app.exception
+    assert app.session_state["pending_image"]["name"] == "inscription.png"
+    assert app.session_state["pending_image"]["bytes"] == content.getvalue()
