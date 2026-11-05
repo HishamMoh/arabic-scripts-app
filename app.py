@@ -1790,19 +1790,19 @@ st.write("")
 
 
 # =====================================================================================
-# 13.1) عين المسند — التقاط، رفع، ومعاينة الصورة
+# 13.1) عين المسند — رفع ومعاينة الصورة
 # =====================================================================================
 # https://docs.streamlit.io/develop/api-reference/layout/st.columns
 def render_eye_view() -> None:
     st.markdown("<div class='sec-title'>🗿 عين المسند</div>", unsafe_allow_html=True)
     st.markdown(
-        "<div class='sec-sub'>مساحة ميدانية هادئة لتوثيق النقش قبل قراءته. التقط صورة أو ارفعها، ثم انتقل مباشرة إلى التحليل المقارن.</div>",
+        "<div class='sec-sub'>مساحة ميدانية هادئة لتوثيق النقش قبل قراءته. ارفع صورة، ثم انتقل مباشرة إلى التحليل المقارن.</div>",
         unsafe_allow_html=True,
     )
-    capture_col, preview_col = st.columns([1, 1.45], gap="large")
-    with capture_col:
+    upload_col, preview_col = st.columns([1, 1.45], gap="large")
+    with upload_col:
         with st.container(border=True):
-            st.markdown("### 📷 التقاط أو رفع")
+            st.markdown("### 🖼️ رفع صورة")
             st.caption(
                 "استخدم صورة واضحة، مستقيمة قدر الإمكان، مع إضاءة جانبية لطيفة لإبراز الحفر."
             )
@@ -1811,12 +1811,10 @@ def render_eye_view() -> None:
                 type=["png", "jpg", "jpeg", "webp"],
                 key="eye_file_upload",
             )
-            camera = st.camera_input("التقاط صورة ميدانية", key="eye_camera_capture")
-            source = camera or upload
-            if source is not None:
-                raw = source.getvalue()
-                name = getattr(source, "name", None) or "camera.jpg"
-                mime = getattr(source, "type", None) or "image/jpeg"
+            if upload is not None:
+                raw = upload.getvalue()
+                name = getattr(upload, "name", None) or "inscription.jpg"
+                mime = getattr(upload, "type", None) or "image/jpeg"
                 current = st.session_state.pending_image
                 if (
                     not current
@@ -1845,7 +1843,7 @@ def render_eye_view() -> None:
                 st.markdown(
                     "<div style='min-height:245px;display:grid;place-items:center;text-align:center;border:1px dashed var(--line);border-radius:16px;padding:24px'>"
                     "<div><div style='font-size:3.5rem;color:var(--gold)'>𐩣</div>"
-                    "<strong>مساحة معاينة النقش</strong><br><span style='color:var(--muted)'>ستظهر الصورة هنا بعد التقاطها أو رفعها</span></div></div>",
+                    "<strong>مساحة معاينة النقش</strong><br><span style='color:var(--muted)'>ستظهر الصورة هنا بعد رفعها</span></div></div>",
                     unsafe_allow_html=True,
                 )
                 st.caption(
